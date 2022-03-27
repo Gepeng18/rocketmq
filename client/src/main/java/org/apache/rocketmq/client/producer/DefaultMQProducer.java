@@ -327,6 +327,8 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      * @throws RemotingException if there is any network-tier error.
      * @throws MQBrokerException if there is any error with broker.
      * @throws InterruptedException if the sending thread is interrupted.
+     *
+     * 发送主要逻辑
      */
     @Override
     public SendResult send(

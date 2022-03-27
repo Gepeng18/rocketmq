@@ -31,8 +31,10 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
 
     @Override
     public void updateFaultItem(final String name, final long currentLatency, final long notAvailableDuration) {
+        // 1、从缓存中获取
         FaultItem old = this.faultItemTable.get(name);
         if (null == old) {
+            // 2、没有，则设置延迟和根据不可用时间计算出可用时间
             final FaultItem faultItem = new FaultItem(name);
             faultItem.setCurrentLatency(currentLatency);
             faultItem.setStartTimestamp(System.currentTimeMillis() + notAvailableDuration);
@@ -43,6 +45,7 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
                 old.setStartTimestamp(System.currentTimeMillis() + notAvailableDuration);
             }
         } else {
+            // 3、缓存中有，则直接设置延迟和根据不可用时间计算出的可用时间
             old.setCurrentLatency(currentLatency);
             old.setStartTimestamp(System.currentTimeMillis() + notAvailableDuration);
         }
@@ -64,6 +67,7 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
 
     @Override
     public String pickOneAtLeast() {
+        // 将elements放到tmpList中
         final Enumeration<FaultItem> elements = this.faultItemTable.elements();
         List<FaultItem> tmpList = new LinkedList<FaultItem>();
         while (elements.hasMoreElements()) {
@@ -71,6 +75,7 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
             tmpList.add(faultItem);
         }
 
+        // 按照时间排序，这里可以看到FaultItem中重写了compareTo方法
         if (!tmpList.isEmpty()) {
             Collections.shuffle(tmpList);
 
@@ -78,8 +83,10 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
 
             final int half = tmpList.size() / 2;
             if (half <= 0) {
+                // 如果没有两台机器，就选第一个
                 return tmpList.get(0).getName();
             } else {
+                // 如果有两台机器，就轮询选一个
                 final int i = this.whichItemWorst.incrementAndGet() % half;
                 return tmpList.get(i).getName();
             }
@@ -107,6 +114,7 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
 
         @Override
         public int compareTo(final FaultItem other) {
+            // 1、能提供服务的优先
             if (this.isAvailable() != other.isAvailable()) {
                 if (this.isAvailable())
                     return -1;
@@ -115,12 +123,14 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
                     return 1;
             }
 
+            // 2、延迟低的优先
             if (this.currentLatency < other.currentLatency)
                 return -1;
             else if (this.currentLatency > other.currentLatency) {
                 return 1;
             }
 
+            // 3、最近能提供服务的优先
             if (this.startTimestamp < other.startTimestamp)
                 return -1;
             else if (this.startTimestamp > other.startTimestamp) {

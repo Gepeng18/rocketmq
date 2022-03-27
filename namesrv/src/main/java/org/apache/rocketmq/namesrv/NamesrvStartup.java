@@ -54,7 +54,9 @@ public class NamesrvStartup {
     public static NamesrvController main0(String[] args) {
 
         try {
+            // 1、解析配置文件，填充 NamesrvConfig NettyServerConfig 属性值 P29
             NamesrvController controller = createNamesrvController(args);
+            // 2、根据启动属性创建NamesrvController并实例化
             start(controller);
             String tip = "The Name Server boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
             log.info(tip);

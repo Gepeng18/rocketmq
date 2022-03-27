@@ -67,9 +67,11 @@ public class TopicPublishInfo {
     }
 
     public MessageQueue selectOneMessageQueue(final String lastBrokerName) {
+        // 1、这个消息还没有被重试过，第一次发送这个消息，随机选一个
         if (lastBrokerName == null) {
             return selectOneMessageQueue();
         } else {
+            // 2、还是线程内轮询，选择与上次调用不一样的队列
             for (int i = 0; i < this.messageQueueList.size(); i++) {
                 int index = this.sendWhichQueue.incrementAndGet();
                 int pos = Math.abs(index) % this.messageQueueList.size();
@@ -80,11 +82,13 @@ public class TopicPublishInfo {
                     return mq;
                 }
             }
+            // 3、无奈，还是避不开，那就还是随机选一个吧
             return selectOneMessageQueue();
         }
     }
 
     public MessageQueue selectOneMessageQueue() {
+        // sendWhichQueue是线程内自增的，所以就形成了线程内轮询的效果
         int index = this.sendWhichQueue.incrementAndGet();
         int pos = Math.abs(index) % this.messageQueueList.size();
         if (pos < 0)
