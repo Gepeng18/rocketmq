@@ -121,13 +121,16 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         this.defaultMQProducer = defaultMQProducer;
         this.rpcHook = rpcHook;
 
+        // 线程池队列大小是5w
         this.asyncSenderThreadPoolQueue = new LinkedBlockingQueue<Runnable>(50000);
+
+        // 构建发送线程池
         this.defaultAsyncSenderExecutor = new ThreadPoolExecutor(
-            Runtime.getRuntime().availableProcessors(),
-            Runtime.getRuntime().availableProcessors(),
+            Runtime.getRuntime().availableProcessors(),    // 核心线程数是 cpu核心数
+            Runtime.getRuntime().availableProcessors(),    // 最大线程数是 cpu核心数
             1000 * 60,
             TimeUnit.MILLISECONDS,
-            this.asyncSenderThreadPoolQueue,
+            this.asyncSenderThreadPoolQueue,  // 线程池队列大小是5w
             new ThreadFactory() {
                 private AtomicInteger threadIndex = new AtomicInteger(0);
 
@@ -475,7 +478,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
     }
 
     /**
-     * DEFAULT ASYNC -------------------------------------------------------
+     * 默认的异步调用
      */
     public void send(Message msg,
         SendCallback sendCallback) throws MQClientException, RemotingException, InterruptedException {
@@ -498,6 +501,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         final long beginStartTime = System.currentTimeMillis();
         ExecutorService executor = this.getAsyncSenderExecutor();
         try {
+            // 将发送消息的任务交给了异步发送线程池去做，在任务中调用sendDefaultImpl方法，传入的通信方式是异步
             executor.submit(new Runnable() {
                 @Override
                 public void run() {
@@ -847,6 +851,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                             msg.setTopic(NamespaceUtil.withoutNamespace(msg.getTopic(), this.defaultMQProducer.getNamespace()));
                         }
 
+                        // 判断了异步发送的超时时间
                         long costTimeAsync = System.currentTimeMillis() - beginStartTime;
                         if (timeout < costTimeAsync) {
                             throw new RemotingTooMuchRequestException("sendKernelImpl call timeout");
@@ -861,7 +866,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                             sendCallback,
                             topicPublishInfo,
                             this.mQClientFactory,
-                            this.defaultMQProducer.getRetryTimesWhenSendAsyncFailed(),
+                            this.defaultMQProducer.getRetryTimesWhenSendAsyncFailed(),  // 默认的重试次数，默认为2
                             context,
                             this);
                         break;
@@ -1386,6 +1391,9 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         this.mQClientFactory.getMQClientAPIImpl().getRemotingClient().setCallbackExecutor(callbackExecutor);
     }
 
+    /**
+     * asyncSenderExecutor需要调用set方法设置
+     */
     public ExecutorService getAsyncSenderExecutor() {
         return null == asyncSenderExecutor ? defaultAsyncSenderExecutor : asyncSenderExecutor;
     }

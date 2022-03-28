@@ -50,7 +50,9 @@ public class ResponseFuture {
 
     public void executeInvokeCallback() {
         if (invokeCallback != null) {
+            // 在ResponseFuture中设置回调状态
             if (this.executeCallbackOnlyOnce.compareAndSet(false, true)) {
+                // 执行回调函数，该方法在org.apache.rocketmq.client.impl.MQClientAPIImpl.sendMessageAsync中被设置
                 invokeCallback.operationComplete(this);
             }
         }

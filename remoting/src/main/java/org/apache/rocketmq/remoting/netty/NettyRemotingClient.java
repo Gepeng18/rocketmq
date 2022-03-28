@@ -106,11 +106,14 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
         this.nettyClientConfig = nettyClientConfig;
         this.channelEventListener = channelEventListener;
 
+        // 设置回调线程池的线程数，默认也是cpu核心线程数
         int publicThreadNums = nettyClientConfig.getClientCallbackExecutorThreads();
         if (publicThreadNums <= 0) {
+            // 如果设置小于0的话，设置为4
             publicThreadNums = 4;
         }
 
+        // 创建回调线程池
         this.publicExecutor = Executors.newFixedThreadPool(publicThreadNums, new ThreadFactory() {
             private AtomicInteger threadIndex = new AtomicInteger(0);
 
@@ -542,10 +545,14 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
         throws InterruptedException, RemotingConnectException, RemotingTooMuchRequestException, RemotingTimeoutException,
         RemotingSendRequestException {
         long beginStartTime = System.currentTimeMillis();
+        // 1、根据brokerAddr 获取channel
         final Channel channel = this.getAndCreateChannel(addr);
+        // 2、判断channel状态
         if (channel != null && channel.isActive()) {
             try {
+                // 3、调用执行前钩子
                 doBeforeRpcHooks(addr, request);
+                // 4、判断超时
                 long costTime = System.currentTimeMillis() - beginStartTime;
                 if (timeoutMillis < costTime) {
                     throw new RemotingTooMuchRequestException("invokeAsync call the addr[" + addr + "] timeout");
@@ -647,6 +654,9 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
         }
     }
 
+    /**
+     * client处理接收到的netty信息
+     */
     class NettyClientHandler extends SimpleChannelInboundHandler<RemotingCommand> {
 
         @Override

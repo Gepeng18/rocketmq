@@ -153,10 +153,13 @@ public abstract class NettyRemotingAbstract {
     public void processMessageReceived(ChannelHandlerContext ctx, RemotingCommand msg) throws Exception {
         final RemotingCommand cmd = msg;
         if (cmd != null) {
+            // 处理不同类型的消息
             switch (cmd.getType()) {
+                // 请求消息
                 case REQUEST_COMMAND:
                     processRequestCommand(ctx, cmd);
                     break;
+                // 响应消息
                 case RESPONSE_COMMAND:
                     processResponseCommand(ctx, cmd);
                     break;
@@ -291,13 +294,13 @@ public abstract class NettyRemotingAbstract {
         final int opaque = cmd.getOpaque();
         final ResponseFuture responseFuture = responseTable.get(opaque);
         if (responseFuture != null) {
-            // 把响应塞到responseFuture中
+            // 把响应内容塞到responseFuture中
             responseFuture.setResponseCommand(cmd);
             // 从响应表中移除
             responseTable.remove(opaque);
 
             if (responseFuture.getInvokeCallback() != null) {
-                // 执行回调
+                // 执行回调 (异步发送时，是设置了回调的)
                 executeInvokeCallback(responseFuture);
             } else {
                 responseFuture.putResponse(cmd);
@@ -314,6 +317,7 @@ public abstract class NettyRemotingAbstract {
      */
     private void executeInvokeCallback(final ResponseFuture responseFuture) {
         boolean runInThisThread = false;
+        // 1、获取回调线程池
         ExecutorService executor = this.getCallbackExecutor();
         if (executor != null) {
             try {
@@ -321,10 +325,12 @@ public abstract class NettyRemotingAbstract {
                     @Override
                     public void run() {
                         try {
+                            // 2、执行回调
                             responseFuture.executeInvokeCallback();
                         } catch (Throwable e) {
                             log.warn("execute callback in executor exception, and callback throw", e);
                         } finally {
+                            // 3、释放信号量
                             responseFuture.release();
                         }
                     }
@@ -337,6 +343,7 @@ public abstract class NettyRemotingAbstract {
             runInThisThread = true;
         }
 
+        // 4、如果需要在线程中执行的话，则不使用回调线程池
         if (runInThisThread) {
             try {
                 responseFuture.executeInvokeCallback();
@@ -465,26 +472,37 @@ public abstract class NettyRemotingAbstract {
         final InvokeCallback invokeCallback)
         throws InterruptedException, RemotingTooMuchRequestException, RemotingTimeoutException, RemotingSendRequestException {
         long beginStartTime = System.currentTimeMillis();
+        // 1、生成一个调用id
         final int opaque = request.getOpaque();
+        // 2、使用信号量进行限流 (信号量默认是65535)
         boolean acquired = this.semaphoreAsync.tryAcquire(timeoutMillis, TimeUnit.MILLISECONDS);
         if (acquired) {
             final SemaphoreReleaseOnlyOnce once = new SemaphoreReleaseOnlyOnce(this.semaphoreAsync);
+            // 判断超时
             long costTime = System.currentTimeMillis() - beginStartTime;
             if (timeoutMillis < costTime) {
                 once.release();
                 throw new RemotingTimeoutException("invokeAsyncImpl call timeout");
             }
 
+            // 封装responseFuture
             final ResponseFuture responseFuture = new ResponseFuture(channel, opaque, timeoutMillis - costTime, invokeCallback, once);
+            // 缓存到responseTable中
             this.responseTable.put(opaque, responseFuture);
             try {
+                /**
+                 * 发送，并且注册了一个listener
+                 * 如果接收到响应，则转入 {@link NettyRemotingClient.NettyClientHandler} 类进行处理
+                 */
                 channel.writeAndFlush(request).addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture f) throws Exception {
+                        // 发送成功，设置成功标志
                         if (f.isSuccess()) {
                             responseFuture.setSendRequestOK(true);
                             return;
                         }
+                        // 失败的处理逻辑
                         requestFail(opaque);
                         log.warn("send a request command to channel <{}> failed.", RemotingHelper.parseChannelRemoteAddr(channel));
                     }

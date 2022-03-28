@@ -483,7 +483,9 @@ public class MQClientAPIImpl {
                 this.remotingClient.invokeOneway(addr, request, timeoutMillis);
                 return null;
             case ASYNC:
+                // 记录发送次数
                 final AtomicInteger times = new AtomicInteger();
+                // 判断是否超时
                 long costTimeAsync = System.currentTimeMillis() - beginStartTime;
                 if (timeoutMillis < costTimeAsync) {
                     throw new RemotingTooMuchRequestException("sendMessage call timeout");
@@ -540,23 +542,28 @@ public class MQClientAPIImpl {
                 public void operationComplete(ResponseFuture responseFuture) {
                     long cost = System.currentTimeMillis() - beginStartTime;
                     RemotingCommand response = responseFuture.getResponseCommand();
+                    // 1、有响应，但是没有sendCallback (这个callback就是设置的回调函数)，没有就说明不打算进行回调了
                     if (null == sendCallback && response != null) {
-
                         try {
+                            // 生成一下发送结果
                             SendResult sendResult = MQClientAPIImpl.this.processSendResponse(brokerName, msg, response, addr);
                             if (context != null && sendResult != null) {
                                 context.setSendResult(sendResult);
+                                // 执行一下调用后的钩子
                                 context.getProducer().executeSendMessageHookAfter(context);
                             }
                         } catch (Throwable e) {
                         }
 
+                        // 更新容错信息
                         producer.updateFaultItem(brokerName, System.currentTimeMillis() - responseFuture.getBeginTimestamp(), false);
                         return;
                     }
 
+                    // 2、有响应，并且设置了sendCallback
                     if (response != null) {
                         try {
+                            // 生成发送结果
                             SendResult sendResult = MQClientAPIImpl.this.processSendResponse(brokerName, msg, response, addr);
                             assert sendResult != null;
                             if (context != null) {
@@ -565,23 +572,30 @@ public class MQClientAPIImpl {
                             }
 
                             try {
+                                // 执行回调的成功函数
                                 sendCallback.onSuccess(sendResult);
                             } catch (Throwable e) {
                             }
 
+                            // 更新容错信息
                             producer.updateFaultItem(brokerName, System.currentTimeMillis() - responseFuture.getBeginTimestamp(), false);
                         } catch (Exception e) {
+                            // 发送异常，更新容错信息，隔离该broker
                             producer.updateFaultItem(brokerName, System.currentTimeMillis() - responseFuture.getBeginTimestamp(), true);
+                            // 异常
                             onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance,
                                 retryTimesWhenSendFailed, times, e, context, false, producer);
                         }
                     } else {
+                        // 发送异常，更新容错信息，隔离该broker
                         producer.updateFaultItem(brokerName, System.currentTimeMillis() - responseFuture.getBeginTimestamp(), true);
                         if (!responseFuture.isSendRequestOK()) {
+                            // 发送不成功
                             MQClientException ex = new MQClientException("send request failed", responseFuture.getCause());
                             onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance,
                                 retryTimesWhenSendFailed, times, ex, context, true, producer);
                         } else if (responseFuture.isTimeout()) {
+                            // 超时
                             MQClientException ex = new MQClientException("wait response timeout " + responseFuture.getTimeoutMillis() + "ms",
                                 responseFuture.getCause());
                             onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance,
@@ -602,6 +616,11 @@ public class MQClientAPIImpl {
         }
     }
 
+    /**
+     * 异步重试，如果遇到异常的处理逻辑
+     * 增加调用次数，然后判断是否需要重试 && 重试次数在范围内，然后就是重新选择一个MessageQueue，重新设置请求id，
+     * 也就是opaque这个，最后就是调用 sendMessageAsync 进行发送了，这就是异步调用的一个重试逻辑，并没有使用for循环的形式。
+     */
     private void onExceptionImpl(final String brokerName,
         final Message msg,
         final long timeoutMillis,
@@ -616,18 +635,24 @@ public class MQClientAPIImpl {
         final boolean needRetry,
         final DefaultMQProducerImpl producer
     ) {
+        // 1、增加调用次数
         int tmp = curTimes.incrementAndGet();
+        // 2、判断是否还可以重试
         if (needRetry && tmp <= timesTotal) {
             String retryBrokerName = brokerName;//by default, it will send to the same broker
             if (topicPublishInfo != null) { //select one message queue accordingly, in order to determine which broker to send
+                // 3、再选一个MessageQueue出来
                 MessageQueue mqChosen = producer.selectOneMessageQueue(topicPublishInfo, brokerName);
                 retryBrokerName = mqChosen.getBrokerName();
             }
+            // 4、重新获取broker地址
             String addr = instance.findBrokerAddressInPublish(retryBrokerName);
             log.warn(String.format("async send msg by retry {} times. topic={}, brokerAddr={}, brokerName={}", tmp, msg.getTopic(), addr,
                 retryBrokerName), e);
             try {
+                // 5、生成一个新的请求id
                 request.setOpaque(RemotingCommand.createNewRequestId());
+                // 6、重试
                 sendMessageAsync(addr, retryBrokerName, msg, timeoutMillis, request, sendCallback, topicPublishInfo, instance,
                     timesTotal, curTimes, context, producer);
             } catch (InterruptedException e1) {
@@ -637,12 +662,13 @@ public class MQClientAPIImpl {
                 onExceptionImpl(retryBrokerName, msg, timeoutMillis, request, sendCallback, topicPublishInfo, instance, timesTotal, curTimes, e1,
                     context, false, producer);
             } catch (RemotingException e1) {
+                // 超时，设置容错隔离
                 producer.updateFaultItem(brokerName, 3000, true);
                 onExceptionImpl(retryBrokerName, msg, timeoutMillis, request, sendCallback, topicPublishInfo, instance, timesTotal, curTimes, e1,
                     context, true, producer);
             }
         } else {
-
+            // 如果不能重试
             if (context != null) {
                 context.setException(e);
                 context.getProducer().executeSendMessageHookAfter(context);
