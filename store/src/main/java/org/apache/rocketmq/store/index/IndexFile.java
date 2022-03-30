@@ -89,25 +89,38 @@ public class IndexFile {
         return this.mappedFile.destroy(intervalForcibly);
     }
 
+    /**
+     * 构建索引
+     * @param key 就是生成的那个
+     * @param phyOffset  commitLog offset
+     * @param storeTimestamp 写入commitLog时间戳
+     * 参考 https://inetyoung.blog.csdn.net/article/details/109598040
+     */
     public boolean putKey(final String key, final long phyOffset, final long storeTimestamp) {
+        // index没有超，默认是2000W个索引
         if (this.indexHeader.getIndexCount() < this.indexNum) {
+            // 计算key的一个hash值
             int keyHash = indexKeyHashMethod(key);
+            // 计算这个hash值在哪个hash槽上面
             int slotPos = keyHash % this.hashSlotNum;
+            // 计算hash槽的一个真实位置
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             FileLock fileLock = null;
 
             try {
 
-                // fileLock = this.fileChannel.lock(absSlotPos, hashSlotSize,
-                // false);
+                // 获取第一个int的值，就是槽里面的值(该槽里面的indexCount)
+                // 这里 invalidIndex = 0 (判断从hash槽里面取出来的值合不合法，不合法就设置成0)
                 int slotValue = this.mappedByteBuffer.getInt(absSlotPos);
                 if (slotValue <= invalidIndex || slotValue > this.indexHeader.getIndexCount()) {
                     slotValue = invalidIndex;
                 }
 
+                // 这一段就是计算当前这个索引距离indexFile中第一个索引文件的一个写入commitLog的时间差
                 long timeDiff = storeTimestamp - this.indexHeader.getBeginTimestamp();
 
+                // 计算时间差
                 timeDiff = timeDiff / 1000;
 
                 if (this.indexHeader.getBeginTimestamp() <= 0) {
@@ -118,27 +131,37 @@ public class IndexFile {
                     timeDiff = 0;
                 }
 
+                // 接下来就是计算当前要构建index的这个消息 写入commitlog时间距离 这个索引文件第一个消息写入commitlog的一个时间差
+                // 计算索引在文件中的真实位置
                 int absIndexPos =
                     IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                         + this.indexHeader.getIndexCount() * indexSize;
 
                 this.mappedByteBuffer.putInt(absIndexPos, keyHash);
                 this.mappedByteBuffer.putLong(absIndexPos + 4, phyOffset);
+                // 存了一个与这个indexFile中最开始那个msg写入时间的一个时间差
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8, (int) timeDiff);
+                // 存储原来槽里的index值
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8 + 4, slotValue);
-
+                // 在hash槽力存放了index，然后通过index就能获取到真实的一个存储物理地址
                 this.mappedByteBuffer.putInt(absSlotPos, this.indexHeader.getIndexCount());
-
+                // 如果是1的话，说明是第一个index
                 if (this.indexHeader.getIndexCount() <= 1) {
+                    // 设置开始的物理offSet
                     this.indexHeader.setBeginPhyOffset(phyOffset);
+                    // 设置写入时间
                     this.indexHeader.setBeginTimestamp(storeTimestamp);
                 }
 
                 if (invalidIndex == slotValue) {
+                    // 增加hash槽的数量+1
                     this.indexHeader.incHashSlotCount();
                 }
+                // index数量+1
                 this.indexHeader.incIndexCount();
+                // 最后的物理offSet
                 this.indexHeader.setEndPhyOffset(phyOffset);
+                // 最后一个写入时间
                 this.indexHeader.setEndTimestamp(storeTimestamp);
 
                 return true;
@@ -162,6 +185,7 @@ public class IndexFile {
     }
 
     public int indexKeyHashMethod(final String key) {
+        // 就是hashCode取一个绝对值
         int keyHash = key.hashCode();
         int keyHashPositive = Math.abs(keyHash);
         if (keyHashPositive < 0)

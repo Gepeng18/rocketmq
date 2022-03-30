@@ -278,6 +278,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * @param consumerGroup Consumer group.
      */
     public DefaultMQPushConsumer(final String consumerGroup) {
+        // 第三个参数是消费者rebalance的时候一个策略，从类名中看出来是平均
         this(null, consumerGroup, null, new AllocateMessageQueueAveragely());
     }
 
@@ -334,9 +335,9 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      */
     public DefaultMQPushConsumer(final String namespace, final String consumerGroup, RPCHook rpcHook,
         AllocateMessageQueueStrategy allocateMessageQueueStrategy) {
-        this.consumerGroup = consumerGroup;
+        this.consumerGroup = consumerGroup;  // 消费组
         this.namespace = namespace;
-        this.allocateMessageQueueStrategy = allocateMessageQueueStrategy;
+        this.allocateMessageQueueStrategy = allocateMessageQueueStrategy; // 分配策略
         defaultMQPushConsumerImpl = new DefaultMQPushConsumerImpl(this, rpcHook);
     }
 
@@ -704,9 +705,11 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     @Override
     public void start() throws MQClientException {
         setConsumerGroup(NamespaceUtil.wrapNamespace(this.getNamespace(), this.consumerGroup));
+        // 真正的consumer的启动
         this.defaultMQPushConsumerImpl.start();
         if (null != traceDispatcher) {
             try {
+                // 主要是做trace用的
                 traceDispatcher.start(this.getNamesrvAddr(), this.getAccessChannel());
             } catch (MQClientException e) {
                 log.warn("trace dispatcher start failed ", e);

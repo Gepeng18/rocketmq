@@ -22,6 +22,11 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 
+/**
+ * ServiceThread里面是没有重写run方法的，而是在其子类重写的，然后这个start方法是在这个抽象类里面的，就是创建一个线程，然后将自己传进去，启动线程
+ * ServiceThread就是维护线程启动，唤醒，等待这些状态的,具体实现还是靠子类来
+ * 这个抽象类在RocketMQ中使用的地方特别多，其实就是维护一个线程各种状态，执行子类任务
+ */
 public abstract class ServiceThread implements Runnable {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.COMMON_LOGGER_NAME);
 

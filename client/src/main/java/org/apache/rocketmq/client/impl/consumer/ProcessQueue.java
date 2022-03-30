@@ -130,6 +130,10 @@ public class ProcessQueue {
         }
     }
 
+    /**
+     * 首先是获取写锁，然后遍历消息列表，将消息放到这个treeMap中，key就是消息的offset ，value就是那个消息，这个样子，
+     * 就会按照消息offset从小到大排列起来了，如果这个treeMap不是空的话，并且没有在消费状态，就要将它的消费状态设置成running，然后允许分发去消费。
+     */
     public boolean putMessage(final List<MessageExt> msgs) {
         boolean dispatchToConsume = false;
         try {
@@ -137,22 +141,31 @@ public class ProcessQueue {
             try {
                 int validMsgCnt = 0;
                 for (MessageExt msg : msgs) {
+                    // 循环往treeMap中塞消息
                     MessageExt old = msgTreeMap.put(msg.getQueueOffset(), msg);
+                    // 去除重复的，主要是queue offset的重复
                     if (null == old) {
                         validMsgCnt++;
+                        // 遍历到最后，这个queue offset 就是最大的
                         this.queueOffsetMax = msg.getQueueOffset();
+                        // 累加消息大小
                         msgSize.addAndGet(msg.getBody().length);
                     }
                 }
+                // 总的一个消费消息的大小
                 msgCount.addAndGet(validMsgCnt);
 
+                // 这个treeMap不是null的话，就没有消费
                 if (!msgTreeMap.isEmpty() && !this.consuming) {
                     dispatchToConsume = true;
                     this.consuming = true;
                 }
 
+                // 有消息
                 if (!msgs.isEmpty()) {
+                    // 获取最后一个msg
                     MessageExt messageExt = msgs.get(msgs.size() - 1);
+                    // 获取它的最大offset
                     String property = messageExt.getProperty(MessageConst.PROPERTY_MAX_OFFSET);
                     if (property != null) {
                         long accTotal = Long.parseLong(property) - messageExt.getQueueOffset();

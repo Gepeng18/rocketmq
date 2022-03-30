@@ -50,10 +50,29 @@ public class RouteInfoManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
     private final static long BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    /**
+     * 这些数据是broker 向namesrv注册时，带过来的
+     * topicQueueTable缓存的是 topic 与queuedata 集合信息对应关系，
+     * queuedata 其实里面记录着这个topic 分成几个readQueue，几个writeQueue，然后这个queue 是在哪个broker上面存储着
+     */
     private final HashMap<String/* topic */, List<QueueData>> topicQueueTable;
+    /**
+     * brokerAddrTable这个缓存着 broker name 与 brokerData对应关系，这个brokerData 里面有集群名字，
+     * broker name ，还有broker id 与地址对应关系，其实就是broker name 与 这个broker name 下面的所有broker地址
+     */
     private final HashMap<String/* brokerName */, BrokerData> brokerAddrTable;
+    /**
+     * clusterAddrTable这个map缓存着 集群名 与 这个集群对应 broker name的这么一个关系。
+     */
     private final HashMap<String/* clusterName */, Set<String/* brokerName */>> clusterAddrTable;
+    /**
+     * brokerLiveTable这个map 缓存着 每个broker 与它的心跳状态，比如说某个broker 向namesrv发送心跳注册，然后就会更新这个map里面对应的数据。
+     */
     private final HashMap<String/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
+    /**
+     * filterServerTable这个map缓存着每个broker 与对应filter server 集合的一个信息。
+     * 其实这个pickupTopicRouteData 方法其实就是从这堆map 中找数据然后封装成TopicRouteData 对象。
+     */
     private final HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
 
     public RouteInfoManager() {
@@ -384,6 +403,13 @@ public class RouteInfoManager {
         }
     }
 
+    /**
+     * 可以从topicQueueTable 获取 这个topic 对应的QueueData集合，因为QueueData 对象中有个broker name，
+     * 就可以遍历QueueData集合 ，然后根据某个QueueData 对象获取到对应的broker name ，根据broker name
+     * 从brokerAddrTable 缓存中获取到对应的 BrokerData对象放到brokerData集合中，同时也从BrokerData
+     * 对象中获取到一堆broker 地址，根据broker 地址 从filterServerTable 缓存中获取到对应的filter集合
+     * 塞到filterServerTable 中，好了这样就把TopicRouteData 对象所需要的凑齐了
+     */
     public TopicRouteData pickupTopicRouteData(final String topic) {
         TopicRouteData topicRouteData = new TopicRouteData();
         boolean foundQueueData = false;
@@ -397,26 +423,31 @@ public class RouteInfoManager {
 
         try {
             try {
+                // 1、获取读锁
                 this.lock.readLock().lockInterruptibly();
+                // 2、根据topic获取queueData列表
                 List<QueueData> queueDataList = this.topicQueueTable.get(topic);
                 if (queueDataList != null) {
                     topicRouteData.setQueueDatas(queueDataList);
+                    // 发现queueData
                     foundQueueData = true;
-
+                    // 获取queueData对应的brokerName
                     Iterator<QueueData> it = queueDataList.iterator();
                     while (it.hasNext()) {
                         QueueData qd = it.next();
                         brokerNameSet.add(qd.getBrokerName());
                     }
-
+                    // 再根据brokerName去broker的地址表中获取broker信息
                     for (String brokerName : brokerNameSet) {
                         BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                         if (null != brokerData) {
                             BrokerData brokerDataClone = new BrokerData(brokerData.getCluster(), brokerData.getBrokerName(), (HashMap<Long, String>) brokerData
                                 .getBrokerAddrs().clone());
                             brokerDataList.add(brokerDataClone);
+                            // 发现broker信息
                             foundBrokerData = true;
                             for (final String brokerAddr : brokerDataClone.getBrokerAddrs().values()) {
+                                // 处理filter，就是根据broker地址获取对应的filer集合，也就是某个broker可能对应一堆filter
                                 List<String> filterServerList = this.filterServerTable.get(brokerAddr);
                                 filterServerMap.put(brokerAddr, filterServerList);
                             }

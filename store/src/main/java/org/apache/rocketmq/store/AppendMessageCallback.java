@@ -27,7 +27,8 @@ public interface AppendMessageCallback {
 
     /**
      * After message serialization, write MapedByteBuffer
-     *
+     * 第一个参数是开始offset，这个offset是commitlog的一个offset，举个例子，第一个MappedFile的开始offset是0，然后一个MappedFile 的大小是1g，
+     * 那第二个MappedFile就得从1073741824（1g）开始了，第二个参数是bytebuffer，这个不用多说，第三个是这个MappedFile还空多少字节没用，第四个就是消息了。
      * @return How many bytes to write
      */
     AppendMessageResult doAppend(final long fileFromOffset, final ByteBuffer byteBuffer,

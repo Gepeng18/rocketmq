@@ -34,8 +34,11 @@ public class Consumer {
 
         /*
          * Instantiate with specified consumer group name.
+         * 创建一个push模式的consumer对象
          */
         DefaultMQPushConsumer consumer = new DefaultMQPushConsumer("please_rename_unique_group_name_4");
+
+        consumer.setNamesrvAddr("name-server1-ip:9876;name-server2-ip:9876");
 
         /*
          * Specify name server addresses.
@@ -51,16 +54,26 @@ public class Consumer {
 
         /*
          * Specify where to start in case the specific consumer group is a brand-new one.
+         * 设置从哪里开始消费
+         * 当建立一个新的消费者组时，需要决定是否需要消费已经存在于 Broker 中的历史消息
+         * CONSUME_FROM_LAST_OFFSET 将会忽略历史消息，并消费之后生成的任何消息。
+         * CONSUME_FROM_FIRST_OFFSET 将会消费每个存在于 Broker 中的信息。
+         * 你也可以使用 CONSUME_FROM_TIMESTAMP 来消费在指定时间戳后产生的消息
          */
         consumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
 
         /*
-         * Subscribe one more topic to consume.
+         * 订阅主题
          */
         consumer.subscribe("TopicTest", "*");
 
         /*
-         *  Register callback to execute on arrival of messages fetched from brokers.
+         * Register callback to execute on arrival of messages fetched from brokers.
+         * 注册回调，消息到达的时候执行
+         * MessageListenerConcurrently 这个有两个实现类，一个是MessageListenerConcurrently，也就是咱们例子那个，
+         * 从名字就可以看出来是个并发消费的，消息到了的时候，不管消息消费顺序，然后并发消费，如果你业务场景要求顺序消息的话，
+         * 就不能选择这个了，需要使用它另一个实现类MessageListenerOrderly ，这个能够保证消息顺序消费，
+         * 它其实就是一个线程来一个消息一个消息消费的。
          */
         consumer.registerMessageListener(new MessageListenerConcurrently() {
 
@@ -68,6 +81,7 @@ public class Consumer {
             public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> msgs,
                 ConsumeConcurrentlyContext context) {
                 System.out.printf("%s Receive New Messages: %s %n", Thread.currentThread().getName(), msgs);
+                // 执行状态的返回
                 return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
             }
         });

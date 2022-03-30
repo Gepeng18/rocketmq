@@ -54,9 +54,6 @@ import org.apache.rocketmq.common.message.MessageExt;
  * 如果你告诉broker 提交事务或者回滚事务的时候出现了问题怎么办？这时候broker 会有个事务服务线程，隔一段时间就扫描RMQ_SYS_TRANS_HALF_TOPIC topic
  * 里面没有提交或者回滚的消息，然后它就会发送消息到你的生产者端来，然后执行checkLocalTransaction 这个检查事务的方法，询问你事务的执行状态。
  * 它默认会问你15次，15次没结果就直接删了，估计是绝望了。
- * ————————————————
- * 版权声明：本文为CSDN博主「$码出未来」的原创文章，遵循CC 4.0 BY-SA版权协议，转载请附上原文出处链接及本声明。
- * 原文链接：https://blog.csdn.net/yuanshangshenghuo/article/details/109389082
  */
 public interface TransactionListener {
     /**

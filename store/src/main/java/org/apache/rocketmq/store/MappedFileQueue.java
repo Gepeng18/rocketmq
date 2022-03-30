@@ -351,27 +351,36 @@ public class MappedFileQueue {
         final int deleteFilesInterval,
         final long intervalForcibly,
         final boolean cleanImmediately) {
+        // 1、拿到mappedFile引用
         Object[] mfs = this.copyMappedFiles(0);
 
         if (null == mfs)
             return 0;
 
+        // 这个for循环正好避开了最后一个mappedFile
+        // 最后一个MappedFile肯定是在用着的，如果你来个强制清理，一下清理了，就没法提供服务了
         int mfsLength = mfs.length - 1;
         int deleteCount = 0;
         List<MappedFile> files = new ArrayList<MappedFile>();
         if (null != mfs) {
             for (int i = 0; i < mfsLength; i++) {
                 MappedFile mappedFile = (MappedFile) mfs[i];
+                // 根据最后修改时间+过期时间
                 long liveMaxTimestamp = mappedFile.getLastModifiedTimestamp() + expiredTime;
+                // (最重要的判断逻辑) 如果已经过了存活时间 或者 强制删除
                 if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {
+                    // 销毁
                     if (mappedFile.destroy(intervalForcibly)) {
                         files.add(mappedFile);
                         deleteCount++;
 
+                        // 一次性最多删除10个
+                        // 这块应该是怕影响性能的，你一直删的的话，这东西很消耗磁盘性能，容易影响其他写入，读取功能
                         if (files.size() >= DELETE_FILES_BATCH_MAX) {
                             break;
                         }
 
+                        // 删除间隔
                         if (deleteFilesInterval > 0 && (i + 1) < mfsLength) {
                             try {
                                 Thread.sleep(deleteFilesInterval);
@@ -388,11 +397,17 @@ public class MappedFileQueue {
             }
         }
 
+        // 把mappedFileQueue中管理的mappedFile清理掉
         deleteExpiredFile(files);
 
         return deleteCount;
     }
 
+    /**
+     * 它的删除跟commitlog 的差不多，只不过commitlog 是根据时间来判断的，它是根据commitlog 的offset 来判断的，
+     * 判断要不要删除这个MappedFile，如果这个MappedFile最后一个unit 存储的offset 小于 commitlog 最小的offset 的话就要销毁了。
+     * 接着就是销毁，超时时间是1分钟，最后是删除引用
+     */
     public int deleteExpiredFileByOffset(long offset, int unitSize) {
         Object[] mfs = this.copyMappedFiles(0);
 
@@ -405,10 +420,13 @@ public class MappedFileQueue {
             for (int i = 0; i < mfsLength; i++) {
                 boolean destroy;
                 MappedFile mappedFile = (MappedFile) mfs[i];
+                // 最后一个单元位置到这个mappedFile结束，其实这行代码就是获取最后一个单元
                 SelectMappedBufferResult result = mappedFile.selectMappedBuffer(this.mappedFileSize - unitSize);
                 if (result != null) {
+                    // 获取最大的offSet，unit的第一个字段其实就是 commitLog的offset
                     long maxOffsetInLogicQueue = result.getByteBuffer().getLong();
                     result.release();
+                    // 判断是否销毁，如果小于offset就要销毁
                     destroy = maxOffsetInLogicQueue < offset;
                     if (destroy) {
                         log.info("physic min offset " + offset + ", logics in current mappedFile max offset "
@@ -422,6 +440,7 @@ public class MappedFileQueue {
                     break;
                 }
 
+                // 进行销毁
                 if (destroy && mappedFile.destroy(1000 * 60)) {
                     files.add(mappedFile);
                     deleteCount++;
@@ -431,6 +450,7 @@ public class MappedFileQueue {
             }
         }
 
+        // 删除引用
         deleteExpiredFile(files);
 
         return deleteCount;
@@ -553,10 +573,13 @@ public class MappedFileQueue {
     }
 
     public boolean retryDeleteFirstFile(final long intervalForcibly) {
+        // 获取第一个mappedFile
         MappedFile mappedFile = this.getFirstMappedFile();
         if (mappedFile != null) {
+            // 不可用了
             if (!mappedFile.isAvailable()) {
                 log.warn("the mappedFile was destroyed once, but still alive, " + mappedFile.getFileName());
+                // 销毁
                 boolean result = mappedFile.destroy(intervalForcibly);
                 if (result) {
                     log.info("the mappedFile re delete OK, " + mappedFile.getFileName());

@@ -47,6 +47,11 @@ public class RebalancePushImpl extends RebalanceImpl {
         this.defaultMQPushConsumerImpl = defaultMQPushConsumerImpl;
     }
 
+    /**
+     * 这块其实就是计算一些拉取消息的阈值了，如果你配置了topic级别的拉取大小的阈值，然后它会计算出来每个queue的拉取阈值，
+     * 就是topic的限制/queue的数量，然后设置到DefaultMQPushConsumer的pullThresholdForQueue 参数中。
+     * 同理，下面消息大小的阈值也是这样子计算的。最后向broker 发送心跳。
+     */
     @Override
     public void messageQueueChanged(String topic, Set<MessageQueue> mqAll, Set<MessageQueue> mqDivided) {
         /**
@@ -56,20 +61,28 @@ public class RebalancePushImpl extends RebalanceImpl {
         SubscriptionData subscriptionData = this.subscriptionInner.get(topic);
         long newVersion = System.currentTimeMillis();
         log.info("{} Rebalance changed, also update version: {}, {}", topic, subscriptionData.getSubVersion(), newVersion);
+        // 设置subscriptionData的版本
         subscriptionData.setSubVersion(newVersion);
 
+        // 当前mq的数量
         int currentQueueCount = this.processQueueTable.size();
+        // 重新计算限制
         if (currentQueueCount != 0) {
+            // 获取topic级别的拉取数量，阈值，默认是-1，也就是没有限制
             int pullThresholdForTopic = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getPullThresholdForTopic();
+            // 这种情况就是设置了topic级别拉取消息大小的一个阈值，这样的话，就会重新计算，分摊到这些queue上面的阈值
             if (pullThresholdForTopic != -1) {
+                // 计算每个queue的阈值
                 int newVal = Math.max(1, pullThresholdForTopic / currentQueueCount);
                 log.info("The pullThresholdForQueue is changed from {} to {}",
                     this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getPullThresholdForQueue(), newVal);
                 this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().setPullThresholdForQueue(newVal);
             }
 
+            // 获取topic级别的消息大小，和上面类似
             int pullThresholdSizeForTopic = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getPullThresholdSizeForTopic();
             if (pullThresholdSizeForTopic != -1) {
+                // 计算每个queue的阈值
                 int newVal = Math.max(1, pullThresholdSizeForTopic / currentQueueCount);
                 log.info("The pullThresholdSizeForQueue is changed from {} to {}",
                     this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getPullThresholdSizeForQueue(), newVal);
@@ -78,6 +91,7 @@ public class RebalancePushImpl extends RebalanceImpl {
         }
 
         // notify broker
+        // 通知broker
         this.getmQClientFactory().sendHeartbeatToAllBrokerWithLock();
     }
 

@@ -204,12 +204,17 @@ public class MappedFile extends ReferenceResource {
         assert messageExt != null;
         assert cb != null;
 
+        // 1、获取写的位置
         int currentPos = this.wrotePosition.get();
 
+        // 2、判断一下当前位置与文件大小做对比，要是大于的就超了文件大小了
         if (currentPos < this.fileSize) {
+            // 默认(我猜的)没有开启transientStorePool，所以使用mappedByteBuffer
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
+            // 定位到当前位置
             byteBuffer.position(currentPos);
             AppendMessageResult result;
+            // 调用回调的doAppend追加消息
             if (messageExt instanceof MessageExtBrokerInner) {
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos,
                         (MessageExtBrokerInner) messageExt, putMessageContext);
@@ -219,6 +224,7 @@ public class MappedFile extends ReferenceResource {
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
             }
+            // 更新了一下MappedFile 写到哪个地方了，更新了下写入时间
             this.wrotePosition.addAndGet(result.getWroteBytes());
             this.storeTimestamp = result.getStoreTimestamp();
             return result;
@@ -232,8 +238,10 @@ public class MappedFile extends ReferenceResource {
     }
 
     public boolean appendMessage(final byte[] data) {
+        // 1、获取当前写入位置
         int currentPos = this.wrotePosition.get();
 
+        // 2、判断在mappedFile中能不能放的下
         if ((currentPos + data.length) <= this.fileSize) {
             try {
                 ByteBuffer buf = this.mappedByteBuffer.slice();
@@ -242,6 +250,7 @@ public class MappedFile extends ReferenceResource {
             } catch (Throwable e) {
                 log.error("Error occurred when append message to mappedFile.", e);
             }
+            // 重置 写入的位置
             this.wrotePosition.addAndGet(data.length);
             return true;
         }
@@ -406,8 +415,11 @@ public class MappedFile extends ReferenceResource {
         return null;
     }
 
+    // 获取这个MappedFile中pos到MappedFile 现在写到哪的那块byteBuffer，这块属于nio里面ByteBuffer的一些操作
     public SelectMappedBufferResult selectMappedBuffer(int pos) {
+        // 1、获取这个MappedFile里面的一个read position，其实就是这个MappedFile的一个可读位置
         int readPosition = getReadPosition();
+        // 读的这个位置要小于可以读的位置
         if (pos < readPosition && pos >= 0) {
             if (this.hold()) {
                 ByteBuffer byteBuffer = this.mappedByteBuffer.slice();
@@ -444,14 +456,18 @@ public class MappedFile extends ReferenceResource {
     }
 
     public boolean destroy(final long intervalForcibly) {
+        // shutdown
         this.shutdown(intervalForcibly);
 
+        // 清理结束
         if (this.isCleanupOver()) {
             try {
+                // 关闭channel
                 this.fileChannel.close();
                 log.info("close file channel " + this.fileName + " OK");
 
                 long beginTime = System.currentTimeMillis();
+                // 删除file
                 boolean result = this.file.delete();
                 log.info("delete file[REF:" + this.getRefCount() + "] " + this.fileName
                     + (result ? " OK, " : " Failed, ") + "W:" + this.getWrotePosition() + " M:"

@@ -149,6 +149,7 @@ public class BrokerController {
     private final BrokerStatsManager brokerStatsManager;
     private final List<SendMessageHook> sendMessageHookList = new ArrayList<SendMessageHook>();
     private final List<ConsumeMessageHook> consumeMessageHookList = new ArrayList<ConsumeMessageHook>();
+    // 默认DefaultMessageStore
     private MessageStore messageStore;
     private RemotingServer remotingServer;
     private RemotingServer fastRemotingServer;
@@ -560,6 +561,11 @@ public class BrokerController {
         }
     }
 
+    /**
+     * broker在启动的时候，会将某个code对应的processor注册到server上。不同类型的消息交给不同的处理器去处理，
+     * 比如说SEND_MESSAGE 这个code的消息就会交给SendMessageProcessor处理，会调用对应processor的 processRequest 方法来处理，
+     * 我们消息生产者发送消息的时候，就是使用的SEND_MESSAGE 这个code
+     */
     public void registerProcessor() {
         /**
          * SendMessageProcessor

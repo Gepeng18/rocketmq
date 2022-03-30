@@ -63,7 +63,9 @@ public class NamesrvController {
     public NamesrvController(NamesrvConfig namesrvConfig, NettyServerConfig nettyServerConfig) {
         this.namesrvConfig = namesrvConfig;
         this.nettyServerConfig = nettyServerConfig;
+        // 创建了一个kv配置manager
         this.kvConfigManager = new KVConfigManager(this);
+        // 创建了路由信息管理器(topic相关)
         this.routeInfoManager = new RouteInfoManager();
         this.brokerHousekeepingService = new BrokerHousekeepingService(this);
         this.configuration = new Configuration(
@@ -75,20 +77,27 @@ public class NamesrvController {
 
     public boolean initialize() {
 
+        // 将文件里的kv配置加载到内存里, kvconfig其实就是存储的一些键值对的配置，然后会有持久化的动作，
+        // 也就是将内存里面的kv持久化到文件中，在它添加键值对的时候就出触发这个持久化动作，项目一启动的时候再从文件中把那些kv加载到内存中
         this.kvConfigManager.load();
 
+        // 创建了一个netty的server
         this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.brokerHousekeepingService);
 
+        // 创建了默认8个线程的线程池
         this.remotingExecutor =
             Executors.newFixedThreadPool(nettyServerConfig.getServerWorkerThreads(), new ThreadFactoryImpl("RemotingExecutorThread_"));
 
+        // 注册processor
+        // processor其实就是服务器收到请求后，看看执行的是什么命令，然后什么命令交给对应的那个processor
         this.registerProcessor();
 
-        // 扫描broker，移除处于位激活的broker
+        // 创建了一个线程池，用于扫描broker，移除处于未激活的broker
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
             public void run() {
+                // 用于扫描掉线的broker
                 NamesrvController.this.routeInfoManager.scanNotActiveBroker();
             }
         }, 5, 10, TimeUnit.SECONDS);
@@ -102,6 +111,7 @@ public class NamesrvController {
             }
         }, 1, 10, TimeUnit.MINUTES);
 
+        // ssl相关内容，不看了
         if (TlsSystemConfig.tlsMode != TlsMode.DISABLED) {
             // Register a listener to reload SslContext
             try {

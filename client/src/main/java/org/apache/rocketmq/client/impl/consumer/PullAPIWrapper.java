@@ -67,16 +67,22 @@ public class PullAPIWrapper {
         this.unitMode = unitMode;
     }
 
+    // 处理拉取消息的结果
     public PullResult processPullResult(final MessageQueue mq, final PullResult pullResult,
         final SubscriptionData subscriptionData) {
         PullResultExt pullResultExt = (PullResultExt) pullResult;
 
+        // 更新下次从哪个broker上面拉消息
+        // 更新下次从哪个broker 上面去获取，这个其实就是broker 返回给你拉取结果的时候，还会带给你建议下次去哪个broker上面获取
         this.updatePullFromWhichNode(mq, pullResultExt.getSuggestWhichBrokerId());
         if (PullStatus.FOUND == pullResult.getPullStatus()) {
             ByteBuffer byteBuffer = ByteBuffer.wrap(pullResultExt.getMessageBinary());
+            // 解码
             List<MessageExt> msgList = MessageDecoder.decodes(byteBuffer);
 
+            // 进行过滤
             List<MessageExt> msgListFilterAgain = msgList;
+            // tag符合
             if (!subscriptionData.getTagsSet().isEmpty() && !subscriptionData.isClassFilterMode()) {
                 msgListFilterAgain = new ArrayList<MessageExt>(msgList.size());
                 for (MessageExt msg : msgList) {
@@ -88,6 +94,7 @@ public class PullAPIWrapper {
                 }
             }
 
+            // 有钩子，执行钩子
             if (this.hasHook()) {
                 FilterMessageContext filterMessageContext = new FilterMessageContext();
                 filterMessageContext.setUnitMode(unitMode);
@@ -97,9 +104,11 @@ public class PullAPIWrapper {
 
             for (MessageExt msg : msgListFilterAgain) {
                 String traFlag = msg.getProperty(MessageConst.PROPERTY_TRANSACTION_PREPARED);
+                // 解析transactionId
                 if (Boolean.parseBoolean(traFlag)) {
                     msg.setTransactionId(msg.getProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX));
                 }
+                /// 给每个msg上面添加一个最小offset，一个最大offset
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_MIN_OFFSET,
                     Long.toString(pullResult.getMinOffset()));
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_MAX_OFFSET,

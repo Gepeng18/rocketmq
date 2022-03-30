@@ -38,17 +38,17 @@ public class DispatchRequest {
     private int bufferSize = -1;//the buffer size maybe larger than the msg size if the message is wrapped by something
 
     public DispatchRequest(
-        final String topic,
+        final String topic, // 主题
         final int queueId,
-        final long commitLogOffset,
-        final int msgSize,
+        final long commitLogOffset,  // offset
+        final int msgSize,           // 消息总长度
         final long tagsCode,
-        final long storeTimestamp,
+        final long storeTimestamp,   // 存储时间
         final long consumeQueueOffset,
         final String keys,
         final String uniqKey,
         final int sysFlag,
-        final long preparedTransactionOffset,
+        final long preparedTransactionOffset,   // 事务的时候存储的一个half offset
         final Map<String, String> propertiesMap
     ) {
         this.topic = topic;

@@ -215,11 +215,13 @@ public abstract class RebalanceImpl {
     }
 
     public void doRebalance(final boolean isOrder) {
+        // 获取订阅表
         Map<String, SubscriptionData> subTable = this.getSubscriptionInner();
         if (subTable != null) {
             for (final Map.Entry<String, SubscriptionData> entry : subTable.entrySet()) {
                 final String topic = entry.getKey();
                 try {
+                    // 根据topic进行重负载
                     this.rebalanceByTopic(topic, isOrder);
                 } catch (Throwable e) {
                     if (!topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
@@ -236,6 +238,17 @@ public abstract class RebalanceImpl {
         return subscriptionInner;
     }
 
+    /**
+     * 这里就是遍历所有订阅的topic来根据topic重新负载均衡，接下来我们看下rebalanceByTopic这个方法的实现，
+     * 这个方法里面按照是集群消息还是广播消息做了判断，我们主要看下这个集群消息的rebalance是怎么做的
+     *
+     * 一共分为5步
+     * 第一步，主要是从topic订阅表中获取这个topic的所有MessageQueue，这些MessageQueue其实就是定时从namesrv拉取回来的，没印象的可以看下《RocketMQ源码解析之消息消费者（发送心跳给broker）》这篇文章，然后根据topic 与消费者组去broker 上面获取这个组的所有消费者实例，接下来就是一堆判断了。
+     * 第二步，就是排序了，将MessageQueue集合进行排序，将该组下的消费者实例集合进行排序，这个一步非常的重要，我们第三步的将负载均衡算法看完就知道了
+     * 第三步，使用负载均衡算法进行重新负载，这里使用默认的AllocateMessageQueueAveragely 平均分配queue的算法。
+     *
+     * 第五步，如果有变动的话就要通知MessageQueue发生了变化，这块也是由子类完成，我们这里看下RebalancePushImpl 类的实现
+     */
     private void rebalanceByTopic(final String topic, final boolean isOrder) {
         switch (messageModel) {
             case BROADCASTING: {
@@ -256,7 +269,9 @@ public abstract class RebalanceImpl {
                 break;
             }
             case CLUSTERING: {
+                // 获取mq
                 Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
+                // 获取这个topic的消费组的所有消费客户端
                 List<String> cidAll = this.mQClientFactory.findConsumerIdList(topic, consumerGroup);
                 if (null == mqSet) {
                     if (!topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
@@ -264,21 +279,27 @@ public abstract class RebalanceImpl {
                     }
                 }
 
+                // 客户端集合是空
                 if (null == cidAll) {
                     log.warn("doRebalance, {} {}, get consumer id list failed", consumerGroup, topic);
                 }
 
+                // 不是null的时候
                 if (mqSet != null && cidAll != null) {
                     List<MessageQueue> mqAll = new ArrayList<MessageQueue>();
                     mqAll.addAll(mqSet);
 
+                    // 进行排序，很重要，这样所有客户端都是这个顺序
                     Collections.sort(mqAll);
                     Collections.sort(cidAll);
 
+                    // 分配mq的策略，默认是平均策略
                     AllocateMessageQueueStrategy strategy = this.allocateMessageQueueStrategy;
 
+                    // 分配mq的结果
                     List<MessageQueue> allocateResult = null;
                     try {
+                        // 使用策略进行分配，默认是按照平均的方式
                         allocateResult = strategy.allocate(
                             this.consumerGroup,
                             this.mQClientFactory.getClientId(),
@@ -295,6 +316,8 @@ public abstract class RebalanceImpl {
                         allocateResultSet.addAll(allocateResult);
                     }
 
+                    // 更新processQueue
+                    // 这个ProcessQueue与MessageQueue是一一对应的，后面的消息消费就是使用这个ProcessQueue
                     boolean changed = this.updateProcessQueueTableInRebalance(topic, allocateResultSet, isOrder);
                     if (changed) {
                         log.info(
@@ -329,7 +352,13 @@ public abstract class RebalanceImpl {
     private boolean updateProcessQueueTableInRebalance(final String topic, final Set<MessageQueue> mqSet,
         final boolean isOrder) {
         boolean changed = false;
-
+        /**
+         * 其实就是遍历processQueueTable 这个map，它维护了MessageQueue与ProcessQueue的对应关系，
+         * 如果新分配的queue里面没有之前那个了，就将之前的那个移除，如果之前的queue过了很长时间没有拉取数据，也就是代码中超过120s没有拉回来数据了，
+         * 也会将它销毁，看看怎么销毁的，先是设置ProcessQueue的状态为销毁，然后移除没必要的queue，
+         * 这块就是将这个queue的消费offset上报broker，然后如果是顺序消费的话，向broker释放锁等等
+         */
+        // 清理改变的messageQueue和过期的queue
         Iterator<Entry<MessageQueue, ProcessQueue>> it = this.processQueueTable.entrySet().iterator();
         while (it.hasNext()) {
             Entry<MessageQueue, ProcessQueue> next = it.next();
@@ -337,18 +366,25 @@ public abstract class RebalanceImpl {
             ProcessQueue pq = next.getValue();
 
             if (mq.getTopic().equals(topic)) {
+                // 如果mq不包含在之前的了
                 if (!mqSet.contains(mq)) {
+                    // 销毁
                     pq.setDropped(true);
+                    // 移除没必要的queue
                     if (this.removeUnnecessaryMessageQueue(mq, pq)) {
                         it.remove();
                         changed = true;
                         log.info("doRebalance, {}, remove unnecessary mq, {}", consumerGroup, mq);
                     }
                 } else if (pq.isPullExpired()) {
+                    // 判断 距离上次拉取消息的时间是否超了120s
                     switch (this.consumeType()) {
                         case CONSUME_ACTIVELY:
+                            // 其实就是pull消息类型
                             break;
                         case CONSUME_PASSIVELY:
+                            // 被动消费，就是pull模式
+                            // 试图关闭
                             pq.setDropped(true);
                             if (this.removeUnnecessaryMessageQueue(mq, pq)) {
                                 it.remove();
@@ -364,17 +400,31 @@ public abstract class RebalanceImpl {
             }
         }
 
+        /**
+         *我们移除了那些超时的queue与不存在的queue 之后，就要处理新增的了，遍历queue集合，然后如果之前没有的话，
+         * 获取一下这个MessageQueue的消费位置，就是从哪开始消费，如果是CONSUME_FROM_LAST_OFFSET 的话，
+         * 就要从broker 上获取了，获取消费到哪了，如果broker没有这个queue的消费offset信息，就会返回-1，
+         * 这个时候它就会再从broker获取这个queue最大的offset，也就是从最后面开始消费，如果你配置了CONSUME_FROM_FIRST_OFFSET，
+         * 也是先去broker上获取消费到哪个offset了，如果没有的话从0开始消费，如果配置了CONSUME_FROM_TIMESTAMP，
+         * 也是从broker先获取最后消费offset，如果没有话，就去broker上找你这个时间的一个offset。
+         * 接着就是组装ProcessQueue塞到map中了，组装PullRequest，放到list中，分发出去，分发这动作由子类完成。如果有改变就返回true，没有变动就返回false
+         */
+        // 新增
         List<PullRequest> pullRequestList = new ArrayList<PullRequest>();
         for (MessageQueue mq : mqSet) {
+            // 如果mq之前不存在
             if (!this.processQueueTable.containsKey(mq)) {
+                // 顺序消费并且锁定失败，这个锁定是定向远程发起锁定
                 if (isOrder && !this.lock(mq)) {
                     log.warn("doRebalance, {}, add a new mq failed, {}, because lock failed", consumerGroup, mq);
                     continue;
                 }
 
+                // 移除本地关于这个mq的一个offset，移除脏offset
                 this.removeDirtyOffset(mq);
                 ProcessQueue pq = new ProcessQueue();
 
+                // 计算下次重拉的位置，按照你的配置，有去broker上获取这个offset的，有获取本地缓存的
                 long nextOffset = -1L;
                 try {
                     nextOffset = this.computePullFromWhereWithException(mq);
@@ -384,10 +434,12 @@ public abstract class RebalanceImpl {
                 }
 
                 if (nextOffset >= 0) {
+                    // 已经存在了
                     ProcessQueue pre = this.processQueueTable.putIfAbsent(mq, pq);
                     if (pre != null) {
                         log.info("doRebalance, {}, mq already exists, {}", consumerGroup, mq);
                     } else {
+                        // 封装pullRequest
                         log.info("doRebalance, {}, add a new mq, {}", consumerGroup, mq);
                         PullRequest pullRequest = new PullRequest();
                         pullRequest.setConsumerGroup(consumerGroup);
@@ -403,6 +455,7 @@ public abstract class RebalanceImpl {
             }
         }
 
+        // 派发去请求(循环找DefaultMQPushConsumer 的立即执行PullRequest方法)
         this.dispatchPullRequest(pullRequestList);
 
         return changed;

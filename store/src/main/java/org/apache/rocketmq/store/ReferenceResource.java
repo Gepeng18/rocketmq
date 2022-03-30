@@ -40,6 +40,9 @@ public abstract class ReferenceResource {
         return this.available;
     }
 
+    /**
+     * 其实就是shutdown，然后过了120s后强制把引用清了，之后就是关闭channel，删除对应文件
+     */
     public void shutdown(final long intervalForcibly) {
         if (this.available) {
             this.available = false;

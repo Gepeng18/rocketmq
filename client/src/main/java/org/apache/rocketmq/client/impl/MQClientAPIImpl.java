@@ -1051,18 +1051,32 @@ public class MQClientAPIImpl {
         this.remotingClient.invokeOneway(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
     }
 
+    /**
+     * 发送心跳
+     * 可以看到直接创建了code是HEART_BEAT的RemotingCommand（broker 收到请求后，就是根据code进行不同的处理流程），
+     * 然后将心跳信息设置到body中，调用client组件进行同步调用。如果成功获取version返回。
+     * 这里broker 收到心跳消息之后，会根据你这个消费者组获取对应维护的消费者组信息，最最最重要的是跟broker的ConsumerManager组件注册，
+     * 如果你是新加入的consumer获取订阅信息变了，就会通知这个消费者组里面的其他消费者说消费者有变化，然后被通知到的消费者，就会里面进行新的rebalance，重新负载均衡。
+     * 需要注意的是，其实这个发送心跳信息有个定时任务的，每30s发送一次，他这里启动的时候就发送，就是想让broker 通知其他消费者有新的消费者加入，让他们重新进行balance。
+     * @param addr 地址
+     * @param heartbeatData 心跳内容
+     * @param timeoutMillis 超时时间
+     */
     public int sendHearbeat(
         final String addr,
         final HeartbeatData heartbeatData,
         final long timeoutMillis
     ) throws RemotingException, MQBrokerException, InterruptedException {
+        // 封装RemotingCommand
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.HEART_BEAT, null);
         request.setLanguage(clientConfig.getLanguage());
         request.setBody(heartbeatData.encode());
+        // 同步调用
         RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
         assert response != null;
         switch (response.getCode()) {
             case ResponseCode.SUCCESS: {
+                // 返回一个version
                 return response.getVersion();
             }
             default:
@@ -1400,22 +1414,28 @@ public class MQClientAPIImpl {
 
     public TopicRouteData getTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis,
         boolean allowTopicNotExist) throws MQClientException, InterruptedException, RemotingTimeoutException, RemotingSendRequestException, RemotingConnectException {
+        // 封装路由信息的请求头
         GetRouteInfoRequestHeader requestHeader = new GetRouteInfoRequestHeader();
         requestHeader.setTopic(topic);
 
+        // 创建RemotingCommand请求实体，注意RequestCode为 RequestCode.GET_ROUTEINFO_BY_TOPIC，由DefaultRequestProcessor进行响应
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_ROUTEINFO_BY_TOPIC, requestHeader);
 
+        // 同步调用，获取结果
         RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);
         assert response != null;
         switch (response.getCode()) {
+            // topic不存在
             case ResponseCode.TOPIC_NOT_EXIST: {
                 if (allowTopicNotExist) {
+                    // 如果允许不存在
                     log.warn("get Topic [{}] RouteInfoFromNameServer is not exist value", topic);
                 }
 
                 break;
             }
             case ResponseCode.SUCCESS: {
+                // 成功，就获取内容
                 byte[] body = response.getBody();
                 if (body != null) {
                     return TopicRouteData.decode(body, TopicRouteData.class);

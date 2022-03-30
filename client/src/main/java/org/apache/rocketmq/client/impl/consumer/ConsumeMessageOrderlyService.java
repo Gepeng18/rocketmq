@@ -98,10 +98,12 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
                 @Override
                 public void run() {
                     try {
+                        // 每20s锁定一下queue,这个锁定queue是向broker 申请锁定
                         ConsumeMessageOrderlyService.this.lockMQPeriodically();
                     } catch (Throwable e) {
                         log.error("scheduleAtFixedRate lockMQPeriodically exception", e);
                     }
+                    // 默认20s执行一次
                 }
             }, 1000 * 1, ProcessQueue.REBALANCE_LOCK_INTERVAL, TimeUnit.MILLISECONDS);
         }

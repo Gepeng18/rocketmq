@@ -335,7 +335,9 @@ public class ConsumeQueue {
     }
 
     public int deleteExpiredFile(long offset) {
+        // 进行销毁，然后得到销毁的个数 (CQ_STORE_UNIT_SIZE 这个就是每个unit 占20个字节,这块与它存储有关)
         int cnt = this.mappedFileQueue.deleteExpiredFileByOffset(offset, CQ_STORE_UNIT_SIZE);
+        // 纠正最小偏移量
         this.correctMinOffset(offset);
         return cnt;
     }
@@ -381,13 +383,18 @@ public class ConsumeQueue {
     }
 
     public void putMessagePositionInfoWrapper(DispatchRequest request, boolean multiQueue) {
+        // 本写入逻辑将重试30次(可见有多重要了)
         final int maxRetries = 30;
+        // 1、先判断是否可以写
         boolean canWrite = this.defaultMessageStore.getRunningFlags().isCQWriteable();
         for (int i = 0; i < maxRetries && canWrite; i++) {
+            // 获取tag
             long tagsCode = request.getTagsCode();
+            // 是否写入扩展信息，默认是false，不写入
             if (isExtWriteEnable()) {
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
                 cqExtUnit.setFilterBitMap(request.getBitMap());
+                // 设置写入时间
                 cqExtUnit.setMsgStoreTime(request.getStoreTimestamp());
                 cqExtUnit.setTagsCode(request.getTagsCode());
 
@@ -399,13 +406,17 @@ public class ConsumeQueue {
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
+            // ** 核心代码 **
+            // 写入consumeQueue队列中
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
+            // 写入成功
             if (result) {
                 if (this.defaultMessageStore.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE ||
                     this.defaultMessageStore.getMessageStoreConfig().isEnableDLegerCommitLog()) {
                     this.defaultMessageStore.getStoreCheckpoint().setPhysicMsgTimestamp(request.getStoreTimestamp());
                 }
+                // 这里就是定向向StoreCheckpointService更新logicMsg的一个写入时间，这个写入时间是这条消息存入commitlog的一个时间
                 this.defaultMessageStore.getStoreCheckpoint().setLogicsMsgTimestamp(request.getStoreTimestamp());
                 if (multiQueue) {
                     multiDispatchLmqQueue(request, maxRetries);
@@ -475,6 +486,11 @@ public class ConsumeQueue {
         }
     }
 
+    /**
+     * 重要的就是封装要存入consumeQueue的东西，可以看到有 在commitlog中的offset，消息的大小，这个tagcode就是关于tag一些东西，
+     * 其实就是tag的一个hashcode，可以看到加起来一共是20字节，通过queue offset 计算出在consumeQueue中的一个偏移量。
+     * 接着就是获取MappedFile，下面这一堆就是校验的了，可以看到最后执行appendMessage操作了，就是把上面组织的内容写入到buffer中
+     */
     private boolean putMessagePositionInfo(final long offset, final int size, final long tagsCode,
         final long cqOffset) {
 
@@ -485,33 +501,43 @@ public class ConsumeQueue {
 
         this.byteBufferIndex.flip();
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
-        this.byteBufferIndex.putLong(offset);
-        this.byteBufferIndex.putInt(size);
-        this.byteBufferIndex.putLong(tagsCode);
+        this.byteBufferIndex.putLong(offset); // 8
+        this.byteBufferIndex.putInt(size);   // 4
+        this.byteBufferIndex.putLong(tagsCode); // 8
 
+        // 根据consumeoffset计算在consumequeue中的位置
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
 
+        // 获取MappedFile
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
-
+            // 判断MappedFile是否是第一个，并且consumeoffset不是0，并且mappedFile的写位置是0
             if (mappedFile.isFirstCreateInQueue() && cqOffset != 0 && mappedFile.getWrotePosition() == 0) {
+                // 设置最小offset
                 this.minLogicOffset = expectLogicOffset;
+                // 设置从哪开始flush
                 this.mappedFileQueue.setFlushedWhere(expectLogicOffset);
+                // 设置从哪开始commit
                 this.mappedFileQueue.setCommittedWhere(expectLogicOffset);
                 this.fillPreBlank(mappedFile, expectLogicOffset);
                 log.info("fill pre blank space " + mappedFile.getFileName() + " " + expectLogicOffset + " "
                     + mappedFile.getWrotePosition());
             }
 
+            // 如果不是0
             if (cqOffset != 0) {
+                // 当前在这个consumeQueue中的offset
                 long currentLogicOffset = mappedFile.getWrotePosition() + mappedFile.getFileFromOffset();
 
+                // 你现在要插入的offset比这个consumeQueue的offset要小，这就说明你之前在找插入位置时，那个位置人家已经有东西了
+                // 要是让你插入的话，就会造成重复，就不让你插入
                 if (expectLogicOffset < currentLogicOffset) {
                     log.warn("Build  consume queue repeatedly, expectLogicOffset: {} currentLogicOffset: {} Topic: {} QID: {} Diff: {}",
                         expectLogicOffset, currentLogicOffset, this.topic, this.queueId, expectLogicOffset - currentLogicOffset);
                     return true;
                 }
 
+                // 按照正常来说是一样大的，但是如果不一样的话，它就告诉你说，这个队列可能会出错，其实仔细想想，应该是一样大的
                 if (expectLogicOffset != currentLogicOffset) {
                     LOG_ERROR.warn(
                         "[BUG]logic queue order maybe wrong, expectLogicOffset: {} currentLogicOffset: {} Topic: {} QID: {} Diff: {}",
@@ -523,7 +549,9 @@ public class ConsumeQueue {
                     );
                 }
             }
+            // 设置最大的那个物理offset
             this.maxPhysicOffset = offset + size;
+            // 追加消息
             return mappedFile.appendMessage(this.byteBufferIndex.array());
         }
         return false;

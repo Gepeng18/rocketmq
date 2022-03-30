@@ -207,6 +207,7 @@ public class MQClientInstance {
         return info;
     }
 
+    // 就是遍历了一遍QueueData集合，然后判断是不是可读的，然后根据根据queue的read数量创建对应数量的MessageQueue就可以了
     public static Set<MessageQueue> topicRouteData2TopicSubscribeInfo(final String topic, final TopicRouteData route) {
         Set<MessageQueue> mqList = new HashSet<MessageQueue>();
         List<QueueData> qds = route.getQueueDatas();
@@ -222,6 +223,18 @@ public class MQClientInstance {
         return mqList;
     }
 
+    /**
+     * mQClientAPIImpl启动主要就是远程客户端的启动，接着就是启动一堆定时任务
+     * 每2分钟获取一下namesrv地址
+     * 每30s 向namesrv获取一下订阅路由信息
+     * 每30s 清理一下下线的broker，发送心跳给broker
+     * 5s将 消费offset 向broker 报告一次或者是本地持久化一下，这个是要看你是消息集群模式还是广播模式
+     * 1分钟调整一下线程池
+     *
+     * 接着就是启动拉消息服务，这个服务主要是处理拉取消息请求的，这里的启动就是启动线程
+     * 再往下启动rebalance服务，这里也是启动一个线程，它主要是做queue的负载的
+     * 再往下就是启动内置消息发送者，它主要是发送一些系统消息的
+     */
     public void start() throws MQClientException {
 
         synchronized (this) {
@@ -229,18 +242,23 @@ public class MQClientInstance {
                 case CREATE_JUST:
                     this.serviceState = ServiceState.START_FAILED;
                     // If not specified,looking address from name server
+                    // 判断nameServ是否是null
                     if (null == this.clientConfig.getNamesrvAddr()) {
                         this.mQClientAPIImpl.fetchNameServerAddr();
                     }
                     // Start request-response channel
                     this.mQClientAPIImpl.start();
                     // Start various schedule tasks
+                    // 开启任务调度
                     this.startScheduledTask();
                     // Start pull service
+                    // 开启拉取消息服务
                     this.pullMessageService.start();
                     // Start rebalance service
+                    // 开启负载均衡服务
                     this.rebalanceService.start();
                     // Start push service
+                    // DefaultMQPushConsumerImpl的启动
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
@@ -466,8 +484,10 @@ public class MQClientInstance {
     }
 
     public void sendHeartbeatToAllBrokerWithLock() {
+        // 心跳锁
         if (this.lockHeartbeat.tryLock()) {
             try {
+                // 送心跳到所有的broker上面
                 this.sendHeartbeatToAllBroker();
                 this.uploadFilterClassSource();
             } catch (final Exception e) {
@@ -528,7 +548,10 @@ public class MQClientInstance {
         return false;
     }
 
+    // 只向master发送心跳
+    // 四件事，先是组装心跳信息，接着是遍历broker 地址表，找到master节点的broker 发送心跳，返回一个version信息，最后是更新broker 版本表中的对应的版本
     private void sendHeartbeatToAllBroker() {
+        // 准备心跳数据
         final HeartbeatData heartbeatData = this.prepareHeartbeatData();
         final boolean producerEmpty = heartbeatData.getProducerDataSet().isEmpty();
         final boolean consumerEmpty = heartbeatData.getConsumerDataSet().isEmpty();
@@ -538,7 +561,9 @@ public class MQClientInstance {
         }
 
         if (!this.brokerAddrTable.isEmpty()) {
+            // 自增次数
             long times = this.sendHeartbeatTimesTotal.getAndIncrement();
+            // 遍历broker 地址信息表，然后找出master broker,交给api组件进行发送
             Iterator<Entry<String, HashMap<Long, String>>> it = this.brokerAddrTable.entrySet().iterator();
             while (it.hasNext()) {
                 Entry<String, HashMap<Long, String>> entry = it.next();
@@ -550,15 +575,18 @@ public class MQClientInstance {
                         String addr = entry1.getValue();
                         if (addr != null) {
                             if (consumerEmpty) {
+                                // 不是master就跳过去
                                 if (id != MixAll.MASTER_ID)
                                     continue;
                             }
 
                             try {
+                                // 获取一个version
                                 int version = this.mQClientAPIImpl.sendHearbeat(addr, heartbeatData, clientConfig.getMqClientApiTimeout());
                                 if (!this.brokerVersionTable.containsKey(brokerName)) {
                                     this.brokerVersionTable.put(brokerName, new HashMap<String, Integer>(4));
                                 }
+                                // 地址 -> version
                                 this.brokerVersionTable.get(brokerName).put(addr, version);
                                 if (times % 20 == 0) {
                                     log.info("send heart beat to broker[{} {} {}] success", brokerName, id, addr);
@@ -620,6 +648,7 @@ public class MQClientInstance {
                             }
                         }
                     } else {
+                        // 最核心的方法，从nameserver中获取topic的路由信息
                         topicRouteData = this.mQClientAPIImpl.getTopicRouteInfoFromNameServer(topic, clientConfig.getMqClientApiTimeout());
                     }
                     if (topicRouteData != null) {
@@ -634,6 +663,8 @@ public class MQClientInstance {
                         if (changed) {
                             TopicRouteData cloneTopicRouteData = topicRouteData.cloneTopicRouteData();
 
+                            // 遍历一下路由信息里面的brokerData 集合，然后更新下本地的broker地址信息表
+                            // 更新broker的地址表
                             for (BrokerData bd : topicRouteData.getBrokerDatas()) {
                                 this.brokerAddrTable.put(bd.getBrokerName(), bd.getBrokerAddrs());
                             }
@@ -653,6 +684,8 @@ public class MQClientInstance {
                             }
 
                             // Update sub info
+                            // 更新订阅信息 / 更新消费者topic信息
+                            // 将TopicRouteData 转成了MessageQueue集合，然后更新每个consumerImpl中的订阅信息
                             if (!consumerTable.isEmpty()) {
                                 Set<MessageQueue> subscribeInfo = topicRouteData2TopicSubscribeInfo(topic, topicRouteData);
                                 Iterator<Entry<String, MQConsumerInner>> it = this.consumerTable.entrySet().iterator();
@@ -702,11 +735,11 @@ public class MQClientInstance {
             MQConsumerInner impl = entry.getValue();
             if (impl != null) {
                 ConsumerData consumerData = new ConsumerData();
-                consumerData.setGroupName(impl.groupName());
-                consumerData.setConsumeType(impl.consumeType());
-                consumerData.setMessageModel(impl.messageModel());
-                consumerData.setConsumeFromWhere(impl.consumeFromWhere());
-                consumerData.getSubscriptionDataSet().addAll(impl.subscriptions());
+                consumerData.setGroupName(impl.groupName()); // 消费组
+                consumerData.setConsumeType(impl.consumeType()); // 消费类型（push还是 pull 方式）
+                consumerData.setMessageModel(impl.messageModel());  // 消息类型（集群还是广播）
+                consumerData.setConsumeFromWhere(impl.consumeFromWhere()); // 消费位置
+                consumerData.getSubscriptionDataSet().addAll(impl.subscriptions()); // 订阅的主题信息
                 consumerData.setUnitMode(impl.isUnitMode());
 
                 heartbeatData.getConsumerDataSet().add(consumerData);
@@ -947,6 +980,10 @@ public class MQClientInstance {
         this.adminExtTable.remove(group);
     }
 
+    /**
+     * 唤醒
+     * 开始调用{@link RebalanceService#run()}
+     */
     public void rebalanceImmediately() {
         this.rebalanceService.wakeup();
     }
@@ -956,6 +993,7 @@ public class MQClientInstance {
             MQConsumerInner impl = entry.getValue();
             if (impl != null) {
                 try {
+                    // 调用每个消费对象的doRebalance，一个MQClient是可以对应多个DefaultMQPushConsumer
                     impl.doRebalance();
                 } catch (Throwable e) {
                     log.error("doRebalance exception", e);
