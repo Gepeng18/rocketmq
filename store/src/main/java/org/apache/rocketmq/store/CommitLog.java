@@ -204,6 +204,8 @@ public class CommitLog {
     public SelectMappedBufferResult getData(final long offset, final boolean returnFirstOnNotFound) {
         // 每个MappedFile的大小，默认是1G
         int mappedFileSize = this.defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog();
+        // 根据offset获取这个offset所在的那个MappedFile这个代码就不用看了，你直接用offset/文件大小能算出来在那个MappedFile中，
+        // 你要是实在算不出来，你可以commitlog 所有的MappedFile，它里面有个起始的offset，只要在起始offset 与起始offset+文件大小之间就可以了，
         MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset, returnFirstOnNotFound);
         if (mappedFile != null) {
             int pos = (int) (offset % mappedFileSize);

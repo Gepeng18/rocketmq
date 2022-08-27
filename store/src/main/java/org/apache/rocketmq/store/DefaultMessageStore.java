@@ -248,9 +248,10 @@ public class DefaultMessageStore implements MessageStore {
              * 3. Calculate the reput offset according to the consume queue;
              * 4. Make sure the fall-behind messages to be dispatched before starting the commitlog, especially when the broker role are automatically changed.
              */
-            // 1、定义一个min
+            // 1、获取第一个commitLog的offset，不出意外是0-最小的嘛
             long maxPhysicalPosInLogicQueue = commitLog.getMinOffset();
-            // 2、与每个consumeQueue里面存储的那个最大commitlog offset做比较，选出一个最大的作为起始offset(consumeQueue是单线程的)
+            // 2、与每个consumeQueue里面存储的那个最大commitlog offset做比较，选出一个最大的作为起始offset
+            // (consumeQueue是单线程的，所以这样找是准确的)
             for (ConcurrentMap<Integer, ConsumeQueue> maps : this.consumeQueueTable.values()) {
                 for (ConsumeQueue logic : maps.values()) {
                     if (logic.getMaxPhysicOffset() > maxPhysicalPosInLogicQueue) {
@@ -276,7 +277,7 @@ public class DefaultMessageStore implements MessageStore {
             log.info("[SetReputOffset] maxPhysicalPosInLogicQueue={} clMinOffset={} clMaxOffset={} clConfirmedOffset={}",
                 maxPhysicalPosInLogicQueue, this.commitLog.getMinOffset(), this.commitLog.getMaxOffset(), this.commitLog.getConfirmOffset());
 
-            // 设置从那个offset开始reput
+            // 设置从哪个offset开始reput
             this.reputMessageService.setReputFromOffset(maxPhysicalPosInLogicQueue);
 
             // 启动reput
@@ -1262,7 +1263,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     public ConsumeQueue findConsumeQueue(String topic, int queueId) {
-        // 1、先尝试从缓存中找，没有就创建
+        // do 1、先根据 topic找
         ConcurrentMap<Integer, ConsumeQueue> map = consumeQueueTable.get(topic);
         if (null == map) {
             ConcurrentMap<Integer, ConsumeQueue> newMap = new ConcurrentHashMap<Integer, ConsumeQueue>(128);
@@ -1274,12 +1275,13 @@ public class DefaultMessageStore implements MessageStore {
             }
         }
 
+        // do 2、再根据queueId找
         ConsumeQueue logic = map.get(queueId);
         // 没有对应的consumeQueue，就创建
         if (null == logic) {
             ConsumeQueue newLogic = new ConsumeQueue(
-                topic,
-                queueId,
+                topic, // 主题
+                queueId, // 队列id
                 StorePathConfigHelper.getStorePathConsumeQueue(this.messageStoreConfig.getStorePathRootDir()),  // 存储位置
                 this.getMessageStoreConfig().getMappedFileSizeConsumeQueue(),   // MappedFile大小
                 this);
@@ -1682,10 +1684,13 @@ public class DefaultMessageStore implements MessageStore {
             switch (tranType) {
                 case MessageSysFlag.TRANSACTION_NOT_TYPE:
                 case MessageSysFlag.TRANSACTION_COMMIT_TYPE:
+                    // 进行存储
                     DefaultMessageStore.this.putMessagePositionInfo(request);
                     break;
                 case MessageSysFlag.TRANSACTION_PREPARED_TYPE:
                 case MessageSysFlag.TRANSACTION_ROLLBACK_TYPE:
+                    // 这里的dispatch是将commitLog消息写入consumeQue，以至于能让消息消费者看到，
+                    // 而半提交和回滚的消息不需要被消息消费者看到，所以不需要进行处理
                     break;
             }
         }
@@ -2116,7 +2121,7 @@ public class DefaultMessageStore implements MessageStore {
          * 可以想想一下那个翻commitlog 的一个场景。
          */
         private void doReput() {
-            // 判断如果reputFromOffset小于commitLog的最小的offset
+            // 判断如果reputFromOffset(就是传进来的最大的consumeQueue的offset) 小于commitLog的最小的offset
             if (this.reputFromOffset < DefaultMessageStore.this.commitLog.getMinOffset()) {
                 log.warn("The reputFromOffset={} is smaller than minPyOffset={}, this usually indicate that the dispatch behind too much and the commitlog has expired.",
                     this.reputFromOffset, DefaultMessageStore.this.commitLog.getMinOffset());
@@ -2131,7 +2136,7 @@ public class DefaultMessageStore implements MessageStore {
                     break;
                 }
 
-                // 获取offset位置的MappedFileBuffer(读取commitlog某个offset位置的数据)
+                // 读取commitlog的offset位置到该mappedFile最终的数据的MappedFileBuffer
                 SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
                 if (result != null) {
                     try {
@@ -2141,7 +2146,8 @@ public class DefaultMessageStore implements MessageStore {
                         for (int readSize = 0; readSize < result.getSize() && doNext; ) {
                             // 这里其实就是从这个offset开始获取一条消息的信息
                             // 这个其实就是从头开始读，因为commitlog里面存消息的格式是第一个int字段就是这个消息的总大小，它这里其实就是取一条消息的各个字段，
-                            // 然后注意是一条消息，虽然这个byteBuffer中可能有很多消息，这里它只会取一条，那一条消息大小和与它存的那条消息第一个字段做比较，
+                            // 然后注意是一条消息，虽然这个byteBuffer中可能有很多消息，这里它只会取一条，
+                            // 这一句话没读懂: 那一条消息大小和与它存的那条消息第一个字段做比较，
                             // 最后将这条消息的一些属性放到这个DispatchRequest里面了
                             DispatchRequest dispatchRequest =
                                 DefaultMessageStore.this.commitLog.checkMessageAndReturnSize(result.getByteBuffer(), false, false);
@@ -2150,9 +2156,9 @@ public class DefaultMessageStore implements MessageStore {
                             // 成功的话
                             if (dispatchRequest.isSuccess()) {
                                 if (size > 0) {
-                                    // ** 真正的分发逻辑 **
-                                    // 将dispatchRequest交给Dispatch集合里面的Dispatcher处理，这里DispatcherList就是构造方法
-                                    // 里面塞进去的那两个，一个是consumeQueue，一个是index
+                                    // do 真正的分发逻辑
+                                    // 将dispatchRequest交给Dispatch集合里面的Dispatcher处理，
+                                    // 这里DispatcherList就是构造方法里面塞进去的那两个，一个是consumeQueue，一个是index
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);
 
                                     // master角色的broker 还需要通知一下messageArrivingListener
@@ -2166,9 +2172,10 @@ public class DefaultMessageStore implements MessageStore {
                                         notifyMessageArrive4MultiQueue(dispatchRequest);
                                     }
 
+                                    // 接着就是维护一些offset ，size之类的东西了
                                     this.reputFromOffset += size;
                                     readSize += size;
-                                    // slave记录一下状态
+                                    // 如果是slave就是记录一下状态
                                     if (DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE) {
                                         DefaultMessageStore.this.storeStatsService
                                             .getSinglePutMessageTopicTimesTotal(dispatchRequest.getTopic()).add(1);
@@ -2235,6 +2242,7 @@ public class DefaultMessageStore implements MessageStore {
             }
         }
 
+        // 死循环调用reput()操作
         @Override
         public void run() {
             DefaultMessageStore.log.info(this.getServiceName() + " service started");

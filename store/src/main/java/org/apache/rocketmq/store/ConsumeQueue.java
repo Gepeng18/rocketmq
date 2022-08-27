@@ -387,7 +387,7 @@ public class ConsumeQueue {
         final int maxRetries = 30;
         // 1、先判断是否可以写
         boolean canWrite = this.defaultMessageStore.getRunningFlags().isCQWriteable();
-        for (int i = 0; i < maxRetries && canWrite; i++) {
+        for (int i = 0; i < maxRetries && canWrite; i++) { // 重试30次
             // 获取tag
             long tagsCode = request.getTagsCode();
             // 是否写入扩展信息，默认是false，不写入
@@ -406,8 +406,7 @@ public class ConsumeQueue {
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
-            // ** 核心代码 **
-            // 写入consumeQueue队列中
+            // do 写入consumeQueue队列中
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
             // 写入成功
@@ -499,6 +498,7 @@ public class ConsumeQueue {
             return true;
         }
 
+        // do 准备即将写入的数据，包括 commitlog中的offset，消息的大小，tag的hashcode，正好20个字节
         this.byteBufferIndex.flip();
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
         this.byteBufferIndex.putLong(offset); // 8
@@ -508,7 +508,7 @@ public class ConsumeQueue {
         // 根据consumeoffset计算在consumequeue中的位置
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
 
-        // 获取MappedFile
+        // do 获取MappedFile
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
             // 判断MappedFile是否是第一个，并且consumeoffset不是0，并且mappedFile的写位置是0
@@ -551,7 +551,7 @@ public class ConsumeQueue {
             }
             // 设置最大的那个物理offset
             this.maxPhysicOffset = offset + size;
-            // 追加消息
+            // do 追加消息
             return mappedFile.appendMessage(this.byteBufferIndex.array());
         }
         return false;
