@@ -199,6 +199,7 @@ public class MappedFile extends ReferenceResource {
         return appendMessagesInner(messageExtBatch, cb, putMessageContext);
     }
 
+    // 往mappedFile中追加消息
     public AppendMessageResult appendMessagesInner(final MessageExt messageExt, final AppendMessageCallback cb,
             PutMessageContext putMessageContext) {
         assert messageExt != null;
@@ -209,7 +210,7 @@ public class MappedFile extends ReferenceResource {
 
         // 2、判断一下当前位置与文件大小做对比，要是大于的就超了文件大小了
         if (currentPos < this.fileSize) {
-            // 默认(我猜的)没有开启transientStorePool，所以使用mappedByteBuffer
+            // 默认没有开启transientStorePool，所以使用mappedByteBuffer
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
             // 定位到当前位置
             byteBuffer.position(currentPos);
@@ -224,8 +225,9 @@ public class MappedFile extends ReferenceResource {
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
             }
-            // 更新了一下MappedFile 写到哪个地方了，更新了下写入时间
+            // 更新了一下MappedFile 写到哪个地方了
             this.wrotePosition.addAndGet(result.getWroteBytes());
+            // 更新了下写入时间
             this.storeTimestamp = result.getStoreTimestamp();
             return result;
         }

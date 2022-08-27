@@ -26,6 +26,11 @@ import java.util.List;
 import org.apache.rocketmq.remoting.protocol.RemotingSerializable;
 
 
+/**
+ * 可以理解为里面存了两部分内容
+ * 一是broker 地址信息，
+ * 二是messagequeue 对应哪个broker上面
+ */
 public class TopicRouteData extends RemotingSerializable {
     private String orderTopicConf;
     // 这个queue信息里面就是包含了这个queue 在哪个broker name上面

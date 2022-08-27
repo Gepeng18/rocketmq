@@ -187,22 +187,24 @@ public class MQClientAPIImpl {
     public MQClientAPIImpl(final NettyClientConfig nettyClientConfig,
         final ClientRemotingProcessor clientRemotingProcessor,
         RPCHook rpcHook, final ClientConfig clientConfig) {
-        this.clientConfig = clientConfig;
+        this.clientConfig = clientConfig; // 客户端配置
         topAddressing = new TopAddressing(MixAll.getWSAddr(), clientConfig.getUnitName());
-        this.remotingClient = new NettyRemotingClient(nettyClientConfig, null);
-        this.clientRemotingProcessor = clientRemotingProcessor;
+        this.remotingClient = new NettyRemotingClient(nettyClientConfig, null); // netty client
+        this.clientRemotingProcessor = clientRemotingProcessor; // netty processor
 
+        // 注册rpc hook
         this.remotingClient.registerRPCHook(rpcHook);
+        // 注册processor CHECK_TRANSACTION_STATE 检查事务状态
         this.remotingClient.registerProcessor(RequestCode.CHECK_TRANSACTION_STATE, this.clientRemotingProcessor, null);
-
+        //通知消费者者id已更改
         this.remotingClient.registerProcessor(RequestCode.NOTIFY_CONSUMER_IDS_CHANGED, this.clientRemotingProcessor, null);
-
+        //重置消费者客户端偏移量
         this.remotingClient.registerProcessor(RequestCode.RESET_CONSUMER_CLIENT_OFFSET, this.clientRemotingProcessor, null);
-
+        //从客户端获取消费者状态
         this.remotingClient.registerProcessor(RequestCode.GET_CONSUMER_STATUS_FROM_CLIENT, this.clientRemotingProcessor, null);
-
+        //获取消费者运行状态
         this.remotingClient.registerProcessor(RequestCode.GET_CONSUMER_RUNNING_INFO, this.clientRemotingProcessor, null);
-
+        // 消费信息
         this.remotingClient.registerProcessor(RequestCode.CONSUME_MESSAGE_DIRECTLY, this.clientRemotingProcessor, null);
 
         this.remotingClient.registerProcessor(RequestCode.PUSH_REPLY_MESSAGE_TO_CLIENT, this.clientRemotingProcessor, null);
@@ -457,11 +459,13 @@ public class MQClientAPIImpl {
         final DefaultMQProducerImpl producer
     ) throws RemotingException, MQBrokerException, InterruptedException {
         long beginStartTime = System.currentTimeMillis();
-        RemotingCommand request = null;
+        RemotingCommand request = null; // do 发送的实体对象
         String msgType = msg.getProperty(MessageConst.PROPERTY_MESSAGE_TYPE);
         boolean isReply = msgType != null && msgType.equals(MixAll.REPLY_MESSAGE_FLAG);
         if (isReply) {
-            // 默认开启，一种优化，因为成员变量名是单个字母的，然后序列化，反序列化，传输内容都有所优化 (序列化使用是json形式的)
+            // 默认开启，一种优化，可以点进去，看一下SendMessageRequestHeaderV2类，里面内容和SendMessageRequestHeader都一样，
+            // 但是成员变量名都改为了单个字母的，然后序列化，反序列化，传输内容都有所优化 (序列化使用是json形式的)
+            // 唯一的缺点就是可读性差点，但是这个玩意是对用户透明的，用户不需要关心
             if (sendSmartMsg) {
                 SendMessageRequestHeaderV2 requestHeaderV2 = SendMessageRequestHeaderV2.createSendMessageRequestHeaderV2(requestHeader);
                 request = RemotingCommand.createRequestCommand(RequestCode.SEND_REPLY_MESSAGE_V2, requestHeaderV2);
@@ -476,10 +480,11 @@ public class MQClientAPIImpl {
                 request = RemotingCommand.createRequestCommand(RequestCode.SEND_MESSAGE, requestHeader);
             }
         }
+        // do 设置上body, 前面已经设置上头：requestHeader 和 RequestCode
         request.setBody(msg.getBody());
 
         switch (communicationMode) {
-            case ONEWAY:
+            case ONEWAY: // 单向发送
                 this.remotingClient.invokeOneway(addr, request, timeoutMillis);
                 return null;
             case ASYNC:
@@ -493,11 +498,13 @@ public class MQClientAPIImpl {
                 this.sendMessageAsync(addr, brokerName, msg, timeoutMillis - costTimeAsync, request, sendCallback, topicPublishInfo, instance,
                     retryTimesWhenSendFailed, times, context, producer);
                 return null;
-            case SYNC:
+            case SYNC: // 同步发送
                 long costTimeSync = System.currentTimeMillis() - beginStartTime;
                 if (timeoutMillis < costTimeSync) {
+                    // 判断超时
                     throw new RemotingTooMuchRequestException("sendMessage call timeout");
                 }
+                // do 同步发送
                 return this.sendMessageSync(addr, brokerName, msg, timeoutMillis - costTimeSync, request);
             default:
                 assert false;
@@ -542,10 +549,11 @@ public class MQClientAPIImpl {
                 public void operationComplete(ResponseFuture responseFuture) {
                     long cost = System.currentTimeMillis() - beginStartTime;
                     RemotingCommand response = responseFuture.getResponseCommand();
-                    // 1、有响应，但是没有sendCallback (这个callback就是设置的回调函数)，没有就说明不打算进行回调了
+                    // 1、有响应，但是没有sendCallback (这个callback就是设置的回调函数)，没有就说明不打算进行回调了，
+                    // 然后解析了一下结果，执行了一下 调用后的钩子，这部分就算完事了
                     if (null == sendCallback && response != null) {
                         try {
-                            // 生成一下发送结果
+                            // 生成发送结果
                             SendResult sendResult = MQClientAPIImpl.this.processSendResponse(brokerName, msg, response, addr);
                             if (context != null && sendResult != null) {
                                 context.setSendResult(sendResult);
@@ -560,7 +568,8 @@ public class MQClientAPIImpl {
                         return;
                     }
 
-                    // 2、有响应，并且设置了sendCallback
+                    // 2、有响应，并且设置了sendCallback，则处理步骤为先是解析了下响应，然后执行了你写的那个sendCallback 对象，
+                    // 另外就是执行了updateFaultItem ，进行更新一个容错信息，
                     if (response != null) {
                         try {
                             // 生成发送结果
@@ -582,7 +591,7 @@ public class MQClientAPIImpl {
                         } catch (Exception e) {
                             // 发送异常，更新容错信息，隔离该broker
                             producer.updateFaultItem(brokerName, System.currentTimeMillis() - responseFuture.getBeginTimestamp(), true);
-                            // 异常
+                            // 如果异常的话，执行了一个onExceptionImpl 方法来处理
                             onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance,
                                 retryTimesWhenSendFailed, times, e, context, false, producer);
                         }
@@ -617,7 +626,7 @@ public class MQClientAPIImpl {
     }
 
     /**
-     * 异步重试，如果遇到异常的处理逻辑
+     * 异步重试，如果遇到异常时的处理逻辑
      * 增加调用次数，然后判断是否需要重试 && 重试次数在范围内，然后就是重新选择一个MessageQueue，重新设置请求id，
      * 也就是opaque这个，最后就是调用 sendMessageAsync 进行发送了，这就是异步调用的一个重试逻辑，并没有使用for循环的形式。
      */
@@ -1412,6 +1421,12 @@ public class MQClientAPIImpl {
         return getTopicRouteInfoFromNameServer(topic, timeoutMillis, true);
     }
 
+    /**
+     * 从nameServ中获取topic路由信息
+     * @param topic topicName
+     * @param timeoutMillis 超时时间，默认是3秒
+     * @param allowTopicNotExist 允许这个topic不存在
+     */
     public TopicRouteData getTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis,
         boolean allowTopicNotExist) throws MQClientException, InterruptedException, RemotingTimeoutException, RemotingSendRequestException, RemotingConnectException {
         // 封装路由信息的请求头
@@ -1419,9 +1434,10 @@ public class MQClientAPIImpl {
         requestHeader.setTopic(topic);
 
         // 创建RemotingCommand请求实体，注意RequestCode为 RequestCode.GET_ROUTEINFO_BY_TOPIC，由DefaultRequestProcessor进行响应
+        // RemotingCommand 相当于http协议，GetRouteInfoRequestHeader相当于请求头，RemotingCommand里面还有body属性可以看作是请求体
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_ROUTEINFO_BY_TOPIC, requestHeader);
 
-        // 同步调用，获取结果
+        // 同步调用，获取结果，使用netty client 发送消息，超时时间就在这里用的
         RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);
         assert response != null;
         switch (response.getCode()) {

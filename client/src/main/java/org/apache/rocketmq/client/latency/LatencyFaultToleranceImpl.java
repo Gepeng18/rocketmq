@@ -25,10 +25,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.rocketmq.client.common.ThreadLocalIndex;
 
 public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> {
+    // 记录着 每个broker的FaultItem的项，这个FaultItem就是保存它能够使用的一个时间（当前时间戳+不可使用时间）
     private final ConcurrentHashMap<String, FaultItem> faultItemTable = new ConcurrentHashMap<String, FaultItem>(16);
 
     private final ThreadLocalIndex whichItemWorst = new ThreadLocalIndex();
 
+    // 其实这个方法就是做更新或者插入操作
     @Override
     public void updateFaultItem(final String name, final long currentLatency, final long notAvailableDuration) {
         // 1、从缓存中获取
@@ -83,7 +85,7 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
 
             final int half = tmpList.size() / 2;
             if (half <= 0) {
-                // 如果没有两台机器，就选第一个
+                // broker/2 ，如果是小于等于0的话，说明就2个broker以下，选第一个
                 return tmpList.get(0).getName();
             } else {
                 // 如果有两台机器，就轮询选一个
@@ -103,6 +105,7 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
             '}';
     }
 
+    // 它是把能提供服务的放前面，然后没有，就找那种延迟低的放前面，也没有的话就找最近能提供服务的放前头。
     class FaultItem implements Comparable<FaultItem> {
         private final String name;
         private volatile long currentLatency;

@@ -441,6 +441,7 @@ public class CommitLog {
         return new DispatchRequest(-1, false /* success */);
     }
 
+    // 计算消息长度
     protected static int calMsgLength(int sysFlag, int bodyLength, int topicLength, int propertiesLength) {
         int bornhostLength = (sysFlag & MessageSysFlag.BORNHOST_V6_FLAG) == 0 ? 8 : 20;
         int storehostAddressLength = (sysFlag & MessageSysFlag.STOREHOSTADDRESS_V6_FLAG) == 0 ? 8 : 20;
@@ -616,11 +617,11 @@ public class CommitLog {
     }
 
     public CompletableFuture<PutMessageResult> asyncPutMessage(final MessageExtBrokerInner msg) {
-        // 1、设置存储时间
+        // 1、设置msg的存储时间
         msg.setStoreTimestamp(System.currentTimeMillis());
         // Set the message body BODY CRC (consider the most appropriate setting
         // on the client)
-        // 设置crc
+        // 设置body的crc校验
         msg.setBodyCRC(UtilAll.crc32(msg.getBody()));
         // Back to Results
         AppendMessageResult result = null;
@@ -677,20 +678,22 @@ public class CommitLog {
         long elapsedTimeInLock = 0;
         MappedFile unlockMappedFile = null;
 
-        // 获取写入锁
+        // 获取写入锁，这个锁也是个可配置项
         putMessageLock.lock(); //spin or ReentrantLock ,depending on store config
         try {
-            // 获取最后一个MappedFile(从集合中拿最后一个元素)
+            // do 获取最后一个MappedFile(从集合中拿最后一个元素)
             MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
+            // 获取当前时间
             long beginLockTimestamp = this.defaultMessageStore.getSystemClock().now();
-            // 设置获取锁的时间戳(在释放锁之前会重置成0)
+            // 设置获取锁的时间戳(在释放锁之前会重置成0)，主要目的是为了判断os page cache繁忙
             this.beginTimeInLock = beginLockTimestamp;
 
             // 这里重新设置了写入的时间戳，以确保全局有序
             msg.setStoreTimestamp(beginLockTimestamp);
 
-            // 判断mappedFile是否是null 或者 满了
+            // do 判断之前获取的最后一个mappedFile是否是null 或者 满了
             if (null == mappedFile || mappedFile.isFull()) {
+                // 如果是的话就要新建一个
                 mappedFile = this.mappedFileQueue.getLastMappedFile(0); // Mark: NewFile may be cause noise
             }
             if (null == mappedFile) {
@@ -698,7 +701,7 @@ public class CommitLog {
                 return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.CREATE_MAPEDFILE_FAILED, null));
             }
 
-            // 往mappedFile中追加消息
+            // do 往mappedFile中追加消息
             result = mappedFile.appendMessage(msg, this.appendMessageCallback, putMessageContext);
             // 追加完成后，就判断写入状态
             switch (result.getStatus()) {
@@ -741,9 +744,10 @@ public class CommitLog {
             this.defaultMessageStore.unlockMappedFile(unlockMappedFile);
         }
 
+        // 封装put消息结果实体
         PutMessageResult putMessageResult = new PutMessageResult(PutMessageStatus.PUT_OK, result);
 
-        // Statistics
+        // Statistics 统计
         storeStatsService.getSinglePutMessageTopicTimesTotal(msg.getTopic()).add(1);
         storeStatsService.getSinglePutMessageTopicSizeTotal(topic).add(result.getWroteBytes());
 
@@ -817,10 +821,11 @@ public class CommitLog {
             }
 
             result = mappedFile.appendMessages(messageExtBatch, this.appendMessageCallback, putMessageContext);
-            switch (result.getStatus()) {
+            switch (result.getStatus()) { // 判断写入状态
                 case PUT_OK:
                     break;
                 case END_OF_FILE:
+                    // 如果是那种MappedFile放不开消息的情况，它会重新获取一个MappedFile
                     unlockMappedFile = mappedFile;
                     // Create a new file, re-write the message
                     mappedFile = this.mappedFileQueue.getLastMappedFile(0);
@@ -839,12 +844,15 @@ public class CommitLog {
                     return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.UNKNOWN_ERROR, result));
             }
 
+            // 记录锁的总时间
             elapsedTimeInLock = this.defaultMessageStore.getSystemClock().now() - beginLockTimestamp;
         } finally {
+            // 释放锁
             beginTimeInLock = 0;
             putMessageLock.unlock();
         }
 
+        // 持有锁的时间如果大于500ms，打个日志
         if (elapsedTimeInLock > 500) {
             log.warn("[NOTIFYME]putMessages in lock cost time(ms)={}, bodyLength={} AppendMessageResult={}", elapsedTimeInLock, messageExtBatch.getBody().length, result);
         }
@@ -853,13 +861,16 @@ public class CommitLog {
             this.defaultMessageStore.unlockMappedFile(unlockMappedFile);
         }
 
+        // 封装put消息结果实体
         PutMessageResult putMessageResult = new PutMessageResult(PutMessageStatus.PUT_OK, result);
 
-        // Statistics
+        // Statistics 统计使用的
         storeStatsService.getSinglePutMessageTopicTimesTotal(messageExtBatch.getTopic()).add(result.getMsgNum());
         storeStatsService.getSinglePutMessageTopicSizeTotal(messageExtBatch.getTopic()).add(result.getWroteBytes());
 
+        // 刷盘
         CompletableFuture<PutMessageStatus> flushOKFuture = submitFlushRequest(result, messageExtBatch);
+        // 处理ha
         CompletableFuture<PutMessageStatus> replicaOKFuture = submitReplicaRequest(result, messageExtBatch);
         return flushOKFuture.thenCombine(replicaOKFuture, (flushStatus, replicaStatus) -> {
             if (flushStatus != PutMessageStatus.PUT_OK) {
@@ -877,7 +888,7 @@ public class CommitLog {
      * 如果broker配置的SYNC_FLUSH 并且是个同步消息，这个时候就会创建一个刷盘请求，然后提交刷盘请求，这个时候会等着刷盘完成，默认就是5s
      */
     public CompletableFuture<PutMessageStatus> submitFlushRequest(AppendMessageResult result, MessageExt messageExt) {
-        // 同步刷盘
+        // 同步刷盘 ：如果broker配置的SYNC_FLUSH 并且是个同步消息，这个时候就会创建一个刷盘请求，然后提交刷盘请求，这个时候会等着刷盘完成，默认就是5s。
         if (FlushDiskType.SYNC_FLUSH == this.defaultMessageStore.getMessageStoreConfig().getFlushDiskType()) {
             final GroupCommitService service = (GroupCommitService) this.flushCommitLogService;
             if (messageExt.isWaitStoreMsgOK()) {
@@ -1318,6 +1329,7 @@ public class CommitLog {
             this.maxMessageSize = size;
         }
 
+        // 进行消息的追加
         public AppendMessageResult doAppend(final long fileFromOffset, final ByteBuffer byteBuffer, final int maxBlank,
             final MessageExtBrokerInner msgInner, PutMessageContext putMessageContext) {
             // STORETIMESTAMP + STOREHOSTADDRESS + OFFSET <br>
@@ -1340,16 +1352,17 @@ public class CommitLog {
                 return UtilAll.bytes2string(msgIdBuffer.array());
             };
 
-            // 记录consumeQueue消息
+            // 猜测key是topic+queueId的拼接
             String key = putMessageContext.getTopicQueueTableKey();
-            // 在队列中的一个偏移量
+            // 根据key获取在队列中的一个偏移量
             Long queueOffset = CommitLog.this.topicQueueTable.get(key);
-            // 如果没有的话，就重新设置进去个新的
+            // 如果没有的话，就设置为0
             if (null == queueOffset) {
                 queueOffset = 0L;
                 CommitLog.this.topicQueueTable.put(key, queueOffset);
             }
 
+            // do 这里很重要
             boolean multiDispatchWrapResult = CommitLog.this.multiDispatch.wrapMultiDispatch(msgInner);
             if (!multiDispatchWrapResult) {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
@@ -1563,26 +1576,32 @@ public class CommitLog {
         protected PutMessageResult encode(MessageExtBrokerInner msgInner) {
             /**
              * Serialize message
+             * 获取了一下消息里面的properties，将它转成字节数组，计算了一下长度
              */
             final byte[] propertiesData =
                     msgInner.getPropertiesString() == null ? null : msgInner.getPropertiesString().getBytes(MessageDecoder.CHARSET_UTF8);
 
             final int propertiesLength = propertiesData == null ? 0 : propertiesData.length;
 
+            // 判断属性length
             if (propertiesLength > Short.MAX_VALUE) {
                 log.warn("putMessage message properties length too long. length={}", propertiesData.length);
                 return new PutMessageResult(PutMessageStatus.PROPERTIES_SIZE_EXCEEDED, null);
             }
 
+            // 接着就是将topic转成字节数据，计算了一下长度
             final byte[] topicData = msgInner.getTopic().getBytes(MessageDecoder.CHARSET_UTF8);
             final int topicLength = topicData.length;
 
+            // 获取了一下body的长度，就是你往Message塞得内容长度
             final int bodyLength = msgInner.getBody() == null ? 0 : msgInner.getBody().length;
 
+            // 计算这个消息需要的总长度,这里面不光 是消息本身的长度,其实还有一些系统参数,
             final int msgLen = calMsgLength(msgInner.getSysFlag(), bodyLength, topicLength, propertiesLength);
 
             // Exceeds the maximum message
-            if (msgLen > this.maxMessageSize) {
+            // 判断一下消息总长度是否超长
+            if (msgLen > this.maxMessageSize) { // 最大消息65535
                 CommitLog.log.warn("message size exceeded, msg total size: " + msgLen + ", msg body size: " + bodyLength
                         + ", maxMessageSize: " + this.maxMessageSize);
                 return new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null);
@@ -1590,25 +1609,25 @@ public class CommitLog {
 
             // Initialization of storage space
             this.resetByteBuffer(encoderBuffer, msgLen);
-            // 1 TOTALSIZE
+            // 1 TOTALSIZE 消息总大小
             this.encoderBuffer.putInt(msgLen);
-            // 2 MAGICCODE
+            // 2 MAGICCODE  magic_code
             this.encoderBuffer.putInt(CommitLog.MESSAGE_MAGIC_CODE);
-            // 3 BODYCRC
+            // 3 BODYCRC   body的crc
             this.encoderBuffer.putInt(msgInner.getBodyCRC());
             // 4 QUEUEID
             this.encoderBuffer.putInt(msgInner.getQueueId());
             // 5 FLAG
             this.encoderBuffer.putInt(msgInner.getFlag());
-            // 6 QUEUEOFFSET, need update later
+            // 6 QUEUEOFFSET, need update later 在队列中的一个偏移量
             this.encoderBuffer.putLong(0);
-            // 7 PHYSICALOFFSET, need update later
+            // 7 PHYSICALOFFSET, need update later 在整个大commitlog的一个偏移量
             this.encoderBuffer.putLong(0);
-            // 8 SYSFLAG
+            // 8 SYSFLAG  记录系统flag
             this.encoderBuffer.putInt(msgInner.getSysFlag());
-            // 9 BORNTIMESTAMP
+            // 9 BORNTIMESTAMP  记录出生日期
             this.encoderBuffer.putLong(msgInner.getBornTimestamp());
-            // 10 BORNHOST
+            // 10 BORNHOST  记录出生地址，就是哪个消息生产者发过来的消息
             socketAddress2ByteBuffer(msgInner.getBornHost() ,this.encoderBuffer);
             // 11 STORETIMESTAMP
             this.encoderBuffer.putLong(msgInner.getStoreTimestamp());

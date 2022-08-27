@@ -121,11 +121,11 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         this.defaultMQProducer = defaultMQProducer;
         this.rpcHook = rpcHook;
 
-        // 线程池队列大小是5w
+        // 线程池队列大小是5w,这是异步发送线程队列
         this.asyncSenderThreadPoolQueue = new LinkedBlockingQueue<Runnable>(50000);
 
-        // 构建发送线程池
-        this.defaultAsyncSenderExecutor = new ThreadPoolExecutor(
+        // 构建异步发送线程池
+        this.defaultAsyncSenderExecutor = new ThreadPoolExecutor( // 默认的异步发送线程池
             Runtime.getRuntime().availableProcessors(),    // 核心线程数是 cpu核心数
             Runtime.getRuntime().availableProcessors(),    // 最大线程数是 cpu核心数
             1000 * 60,
@@ -182,33 +182,42 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         this.start(true);
     }
 
+    /**
+     * 这个参数，就是要不要启动MQClientInstance。
+     */
     public void start(final boolean startFactory) throws MQClientException {
         switch (this.serviceState) {
-            case CREATE_JUST:
-                this.serviceState = ServiceState.START_FAILED;
+            case CREATE_JUST: // 刚创建，还没启动
+                this.serviceState = ServiceState.START_FAILED; // 先设置为启动失败状态
 
-                this.checkConfig();
+                this.checkConfig(); // 检查group配置
 
+                // 只要group组名不是CLIENT_INNER_PRODUCER，就重新设置下实例名字
                 if (!this.defaultMQProducer.getProducerGroup().equals(MixAll.CLIENT_INNER_PRODUCER_GROUP)) {
                     this.defaultMQProducer.changeInstanceNameToPID();
                 }
 
                 this.mQClientFactory = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQProducer, rpcHook);
 
+                // 进行注册
                 boolean registerOK = mQClientFactory.registerProducer(this.defaultMQProducer.getProducerGroup(), this);
                 if (!registerOK) {
+                    // 如果没有注册成功的话，标志状态时创建且没有启动，然后抛出之前已经注册的异常
                     this.serviceState = ServiceState.CREATE_JUST;
                     throw new MQClientException("The producer group[" + this.defaultMQProducer.getProducerGroup()
                         + "] has been created before, specify another name please." + FAQUrl.suggestTodo(FAQUrl.GROUP_NAME_DUPLICATE_URL),
                         null);
                 }
 
+                // topic:topic info
                 this.topicPublishInfoTable.put(this.defaultMQProducer.getCreateTopicKey(), new TopicPublishInfo());
 
+                // 是否启动 client 实例,默认是true
                 if (startFactory) {
                     mQClientFactory.start();
                 }
 
+                // 启动生产者成功
                 log.info("the producer [{}] start OK. sendMessageWithVIPChannel={}", this.defaultMQProducer.getProducerGroup(),
                     this.defaultMQProducer.isSendMessageWithVIPChannel());
                 this.serviceState = ServiceState.RUNNING;
@@ -531,6 +540,9 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
     /**
      * 收集延迟
+     * @param brokerName brokerName
+     * @param currentLatency 发送这个message的延迟时间
+     * @param isolation 是否熔断，当异常情况下，这个参数传入true，其他情况传入false
      */
     public void updateFaultItem(final String brokerName, final long currentLatency, boolean isolation) {
         this.mqFaultStrategy.updateFaultItem(brokerName, currentLatency, isolation);
@@ -562,6 +574,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         long endTimestamp = beginTimestampFirst;
         // 4、获取topic信息,它这个方法会先从本地的一个缓存中获取下，没有的话就从nameserv更新下这个本地缓存，
         // 再找找，要是再找不到，它就认为你没有这个topic了，然后就去nameserv上面拉取一个默认topic的一些配置信息给你用（这个其实就是在新建一个topic）
+        // topicPublishInfo里面就有这topic 有几个MessageQueue，然后每个MessageQueue对应在哪个broker上面，broker 的地址又是啥的
         TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());
         if (topicPublishInfo != null && topicPublishInfo.ok()) {
             boolean callTimeout = false;
@@ -569,15 +582,16 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             Exception exception = null;
             SendResult sendResult = null;
             // 如果是同步的话，默认重试次数就是2 ，然后加上本身这次请求，也就是最多请求3次
-            // 单向发送是没有这个重试的，然后就发送一次
+            // 其他发送方式是没有这个重试的，然后就发送一次
             int timesTotal = communicationMode == CommunicationMode.SYNC ? 1 + this.defaultMQProducer.getRetryTimesWhenSendFailed() : 1;
             int times = 0;
             // 存放发送过的broker name
             String[] brokersSent = new String[timesTotal];
-            // 重试发送
+            // do 重试发送，不仅rocketMQ，dubbo的失败重试也是用for实现的
             for (; times < timesTotal; times++) {
                 String lastBrokerName = null == mq ? null : mq.getBrokerName();
-                // 选择 message queue (负载均衡)
+                // do 选择 message queue (负载均衡)
+                // topicPublishInfo 里面其实就是那一堆MessageQueue， 然后这个lastBrokerName 是上次我们选择的那个broker name
                 MessageQueue mqSelected = this.selectOneMessageQueue(topicPublishInfo, lastBrokerName);
                 if (mqSelected != null) {
                     mq = mqSelected;
@@ -588,6 +602,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                             //Reset topic with namespace during resend.
                             msg.setTopic(this.defaultMQProducer.withNamespace(msg.getTopic()));
                         }
+                        // 这里的意思是，如果重试了几次，这个时间累计后的时间，超过了超时时间，就将callTimeout设置为true
                         long costTime = beginTimestampPrev - beginTimestampFirst;
                         if (timeout < costTime) {
                             // 超时
@@ -595,9 +610,10 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                             break;
                         }
 
-                        // 进行发送
+                        // do 调用sendKernelImpl进行发送
                         sendResult = this.sendKernelImpl(msg, mq, communicationMode, sendCallback, topicPublishInfo, timeout - costTime);
                         endTimestamp = System.currentTimeMillis();
+                        // 收集延迟
                         this.updateFaultItem(mq.getBrokerName(), endTimestamp - beginTimestampPrev, false);
                         switch (communicationMode) {
                             case ASYNC:
@@ -691,11 +707,13 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
         validateNameServerSetting();
 
-        // 接着就是判断 这个TopicPublishInfo 是否存在了，如果不存在的话就抛出异常了，没有后续了
+        // 如果TopicPublishInfo不存在的话就抛出异常了，没有后续了
         throw new MQClientException("No route info of this topic: " + msg.getTopic() + FAQUrl.suggestTodo(FAQUrl.NO_TOPIC_ROUTE_INFO),
             null).setResponseCode(ClientErrorCode.NOT_FOUND_TOPIC_EXCEPTION);
     }
 
+    // 根据topic去本地的 topic table中获取 对应topic 的信息，如果本地缓存中没有，
+    // 它就会将topic 创建一个对应的topicPublishInfo对象，这个对象是空的，然后请求更新这个topic信息
     private TopicPublishInfo tryToFindTopicPublishInfo(final String topic) {
         // 1、先从本地缓存中找
         TopicPublishInfo topicPublishInfo = this.topicPublishInfoTable.get(topic);
@@ -703,9 +721,14 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             this.topicPublishInfoTable.putIfAbsent(topic, new TopicPublishInfo());
             // 找不到，调用该方法，从nameserver中获取topic的路由信息
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic);
+            // 再次从topic table中获取信息
             topicPublishInfo = this.topicPublishInfoTable.get(topic);
         }
 
+        // 如果nameSrv都没有的话，则再次调用updateTopicRouteInfoFromNameServer()，但是isDefault 是true
+        // 这个时候就获取一下默认topic的路由信息，这个默认topic是TBW102，发送消息就选择TBW102这个topic的broker发送，
+        // broker收到消息后会自动创建这个topic，这里需要注意的是broker得支持自动创建，这里是有个参数配置的autoCreateTopicEnable 设置成true就可以了。
+        // 但是topic我们一般是不会在producer中自动创建的，一般使用RocketMQ的可视化控制台，然后创建topic，指定对应的queue num,指定broker等等
         if (topicPublishInfo.isHaveTopicRouterInfo() || topicPublishInfo.ok()) {
             return topicPublishInfo;
         } else {
@@ -723,13 +746,17 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         final long timeout) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
         long beginStartTime = System.currentTimeMillis();
 
-        // 1、获取broker的地址(选择master，毕竟是往里面写消息，然后只能用master)
+        // 1、获取broker的地址(如果broker是master/slave，那就选择master，毕竟是往里面写消息，然后只能用master)
+        // 这里引申一点，消息消费者的时候，消息消费者是可以向slave node 获取消息消费的，前提是 master 负载比较大，
+        // 然后消息消费者下次获取消费的消息已经在slave里面了，然后消息消费者获取到消息之后，它里面有个字段是告诉你下次可以去xxx 地址的broker 拉取消息
         String brokerAddr = this.mQClientFactory.findBrokerAddressInPublish(mq.getBrokerName());
         if (null == brokerAddr) {
             // 还没有获取到，就去nameserv上更新下本地缓存
             tryToFindTopicPublishInfo(mq.getTopic());
+            // 再获取下brokerName对应的addr
             brokerAddr = this.mQClientFactory.findBrokerAddressInPublish(mq.getBrokerName());
         }
+        // 如果brokerAddr == null，就抛异常了
 
         SendMessageContext context = null;
         if (brokerAddr != null) {
@@ -740,6 +767,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             byte[] prevBody = msg.getBody();
             try {
                 //for MessageBatch,ID has been set in the generating process
+                // 如果这个消息不是批量消息的话，我们就给这个消息设置一个唯一的消息id（批量消息已经设置了唯一id）
                 if (!(msg instanceof MessageBatch)) {
                     // 给消息设置唯一id
                     MessageClientIDSetter.setUniqID(msg);
@@ -751,9 +779,10 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                     topicWithNamespace = true;
                 }
 
+                // 一个记录好几个属性值的标志位
                 int sysFlag = 0;
                 boolean msgBodyCompressed = false;
-                // 内容部分超过了4k就会压缩
+                // 消息内容超过了默认的4k之后，就会进行压缩，这个压缩的阈值你是可以配置的
                 if (this.tryToCompressMessage(msg)) {
                     sysFlag |= MessageSysFlag.COMPRESSED_FLAG;
                     msgBodyCompressed = true;
@@ -803,19 +832,19 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
                 // 封装发送消息的头，这个请求头里面就涵盖了很多的参数，比如说topic，MessageQueue 队列Id， 出生日期，flag等等
                 SendMessageRequestHeader requestHeader = new SendMessageRequestHeader();
-                requestHeader.setProducerGroup(this.defaultMQProducer.getProducerGroup());
-                requestHeader.setTopic(msg.getTopic());
-                requestHeader.setDefaultTopic(this.defaultMQProducer.getCreateTopicKey());
-                requestHeader.setDefaultTopicQueueNums(this.defaultMQProducer.getDefaultTopicQueueNums());
-                requestHeader.setQueueId(mq.getQueueId());
-                requestHeader.setSysFlag(sysFlag);
-                requestHeader.setBornTimestamp(System.currentTimeMillis());
-                requestHeader.setFlag(msg.getFlag());
-                requestHeader.setProperties(MessageDecoder.messageProperties2String(msg.getProperties()));
+                requestHeader.setProducerGroup(this.defaultMQProducer.getProducerGroup()); // 设置group
+                requestHeader.setTopic(msg.getTopic());  // 设置topic
+                requestHeader.setDefaultTopic(this.defaultMQProducer.getCreateTopicKey()); // 设置默认topic
+                requestHeader.setDefaultTopicQueueNums(this.defaultMQProducer.getDefaultTopicQueueNums());// 设置默认topic的队列数量，默认是4个
+                requestHeader.setQueueId(mq.getQueueId()); // 队列id
+                requestHeader.setSysFlag(sysFlag); // 系统标记
+                requestHeader.setBornTimestamp(System.currentTimeMillis()); // 出生日期
+                requestHeader.setFlag(msg.getFlag()); // 消息flag
+                requestHeader.setProperties(MessageDecoder.messageProperties2String(msg.getProperties()));  // 属性
                 requestHeader.setReconsumeTimes(0);
-                requestHeader.setUnitMode(this.isUnitMode());
-                requestHeader.setBatch(msg instanceof MessageBatch);
-                if (requestHeader.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
+                requestHeader.setUnitMode(this.isUnitMode()); // unit mode
+                requestHeader.setBatch(msg instanceof MessageBatch); // 是否是batch
+                if (requestHeader.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) { // 判断topic是否是 %RETRY%开头
                     String reconsumeTimes = MessageAccessor.getReconsumeTime(msg);
                     if (reconsumeTimes != null) {
                         requestHeader.setReconsumeTimes(Integer.valueOf(reconsumeTimes));
@@ -853,7 +882,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                             msg.setTopic(NamespaceUtil.withoutNamespace(msg.getTopic(), this.defaultMQProducer.getNamespace()));
                         }
 
-                        // 判断了异步发送的超时时间
+                        // 先判断了异步发送超时了吗？
                         long costTimeAsync = System.currentTimeMillis() - beginStartTime;
                         if (timeout < costTimeAsync) {
                             throw new RemotingTooMuchRequestException("sendKernelImpl call timeout");
@@ -1069,6 +1098,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
      */
     public void send(Message msg, MessageQueue mq, SendCallback sendCallback)
         throws MQClientException, RemotingException, InterruptedException {
+        // 默认的发送超时时间是3秒
         send(msg, mq, sendCallback, this.defaultMQProducer.getSendMsgTimeout());
     }
 
@@ -1090,6 +1120,8 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         throws MQClientException, RemotingException, InterruptedException {
         final long beginStartTime = System.currentTimeMillis();
         ExecutorService executor = this.getAsyncSenderExecutor();
+        // 这里需要注意的是，它将这个发送消息的任务交给了一个异步发送线程池，
+        // 然后在任务中是调用了sendDefaultImpl 方法，然后通信方式是异步CommunicationMode.ASYNC
         try {
             executor.submit(new Runnable() {
                 @Override
@@ -1397,6 +1429,8 @@ public class DefaultMQProducerImpl implements MQProducerInner {
      * asyncSenderExecutor需要调用set方法设置
      */
     public ExecutorService getAsyncSenderExecutor() {
+        // 先是判断asyncSenderExecutor 这个线程池是不是null，其实咱们这里它是null的（因为我们没有指定线程池，
+        // 不过你编程的时候是可以指定的，使用setAsyncSenderExecutor()这个方法就可以设置了）
         return null == asyncSenderExecutor ? defaultAsyncSenderExecutor : asyncSenderExecutor;
     }
 

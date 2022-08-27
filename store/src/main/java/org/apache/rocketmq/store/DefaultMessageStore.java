@@ -478,7 +478,7 @@ public class DefaultMessageStore implements MessageStore {
 
         // 2、获取系统时间
         long beginTime = this.getSystemClock().now();
-        // 3、往commitlog中存储消息
+        // do 3、往commitlog中存储消息
         CompletableFuture<PutMessageResult> putResultFuture = this.commitLog.asyncPutMessage(msg);
 
         putResultFuture.thenAccept((result) -> {

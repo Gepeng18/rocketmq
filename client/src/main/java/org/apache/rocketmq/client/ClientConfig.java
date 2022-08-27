@@ -95,6 +95,7 @@ public class ClientConfig {
         this.instanceName = instanceName;
     }
 
+    // 重新设置一下instanceName，你之前没指定，就用你的pid，pid就是进程号，之前指定了，它就不会改了
     public void changeInstanceNameToPID() {
         if (this.instanceName.equals("DEFAULT")) {
             this.instanceName = UtilAll.getPid() + "#" + System.nanoTime();

@@ -266,6 +266,9 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
     }
 
 
+    /**
+     * 该方法开始都是一些封装响应和校验封装请求消息的，我们直接看下方法后面部分
+     */
     private CompletableFuture<RemotingCommand> asyncSendMessage(ChannelHandlerContext ctx, RemotingCommand request,
                                                                 SendMessageContext mqtraceContext,
                                                                 SendMessageRequestHeader requestHeader) {
@@ -328,7 +331,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             // 事务消息走这里
             putMessageResult = this.brokerController.getTransactionalMessageService().asyncPrepareMessage(msgInner);
         } else {
-            // 普通消息走这里(找到存储器，然后调用存储器的putMessage方法进行存储)
+            // do 普通消息走这里(找到存储器DefaultMessageStore，然后调用存储器的putMessage方法进行存储)
             putMessageResult = this.brokerController.getMessageStore().asyncPutMessage(msgInner);
         }
         return handlePutMessageResultFuture(putMessageResult, response, request, msgInner, responseHeader, mqtraceContext, ctx, queueIdInt);

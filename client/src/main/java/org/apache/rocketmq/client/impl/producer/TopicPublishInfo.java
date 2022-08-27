@@ -27,6 +27,7 @@ public class TopicPublishInfo {
     private boolean orderTopic = false;
     private boolean haveTopicRouterInfo = false;
     private List<MessageQueue> messageQueueList = new ArrayList<MessageQueue>();
+    // ThreadLocal实现的，所以每个线程一个计数器
     private volatile ThreadLocalIndex sendWhichQueue = new ThreadLocalIndex();
     private TopicRouteData topicRouteData;
 
@@ -67,22 +68,23 @@ public class TopicPublishInfo {
     }
 
     public MessageQueue selectOneMessageQueue(final String lastBrokerName) {
-        // 1、这个消息还没有被重试过，第一次发送这个消息，随机选一个
+        // 1、这个消息还没有被重试过，比如第一次发送这个消息，线程内轮询选择一个MessageQueue
         if (lastBrokerName == null) {
             return selectOneMessageQueue();
         } else {
-            // 2、还是线程内轮询，选择与上次调用不一样的队列
+            // 2、重试的时候，选择messageQueue的策略还是线程内轮询，选择与上次调用不一样的队列
             for (int i = 0; i < this.messageQueueList.size(); i++) {
                 int index = this.sendWhichQueue.incrementAndGet();
                 int pos = Math.abs(index) % this.messageQueueList.size();
                 if (pos < 0)
                     pos = 0;
+                // 避开上次的brokerName
                 MessageQueue mq = this.messageQueueList.get(pos);
                 if (!mq.getBrokerName().equals(lastBrokerName)) {
                     return mq;
                 }
             }
-            // 3、无奈，还是避不开，那就还是随机选一个吧
+            // 3、无奈，如果这一堆MessageQueue都是在lastBrokerName上的，还是避不开，那线程内轮询选择一个MessageQueue
             return selectOneMessageQueue();
         }
     }

@@ -290,8 +290,9 @@ public abstract class NettyRemotingAbstract {
      */
     public void processResponseCommand(ChannelHandlerContext ctx, RemotingCommand cmd) {
         // 1、netty处理响应的线程
-        // 获取对应id的responseFuture
+        // 先获取到cmd中的requestId
         final int opaque = cmd.getOpaque();
+        // 然后获取对应id的responseFuture
         final ResponseFuture responseFuture = responseTable.get(opaque);
         if (responseFuture != null) {
             // 把响应内容塞到responseFuture中
@@ -299,10 +300,12 @@ public abstract class NettyRemotingAbstract {
             // 从响应表中移除
             responseTable.remove(opaque);
 
+            // 如果有回调，执行回调
             if (responseFuture.getInvokeCallback() != null) {
                 // 执行回调 (异步发送时，是设置了回调的)
                 executeInvokeCallback(responseFuture);
             } else {
+                // 设置返回结果并且countDownLatch.countDown()
                 responseFuture.putResponse(cmd);
                 responseFuture.release();
             }
@@ -343,7 +346,7 @@ public abstract class NettyRemotingAbstract {
             runInThisThread = true;
         }
 
-        // 4、如果需要在线程中执行的话，则不使用回调线程池
+        // 4、如果executor==null，则表明需要在线程中执行的话，则不使用回调线程池
         if (runInThisThread) {
             try {
                 responseFuture.executeInvokeCallback();
@@ -419,11 +422,11 @@ public abstract class NettyRemotingAbstract {
     public RemotingCommand invokeSyncImpl(final Channel channel, final RemotingCommand request,
         final long timeoutMillis)
         throws InterruptedException, RemotingSendRequestException, RemotingTimeoutException {
-        // 为request创建一个id，这个id用来匹配响应结果的
+        // do 获取request的id，这个id用来匹配响应结果的
         final int opaque = request.getOpaque();
 
         try {
-            // 1、创建ResponseFuture
+            // 1、创建ResponseFuture，这个东西异步，同步都可以用
             final ResponseFuture responseFuture = new ResponseFuture(channel, opaque, timeoutMillis, null, null);
             // 2、放入response表中
             this.responseTable.put(opaque, responseFuture);
@@ -434,12 +437,15 @@ public abstract class NettyRemotingAbstract {
                 @Override
                 public void operationComplete(ChannelFuture f) throws Exception {
                     if (f.isSuccess()) {
+                        // 成功
                         responseFuture.setSendRequestOK(true);
                         return;
                     } else {
+                        // 失败
                         responseFuture.setSendRequestOK(false);
                     }
 
+                    // 移除response表中的缓存
                     responseTable.remove(opaque);
                     responseFuture.setCause(f.cause());
                     responseFuture.putResponse(null);
@@ -447,7 +453,16 @@ public abstract class NettyRemotingAbstract {
                 }
             });
 
-            // 4、等待结果返回(当前线程就会wait ，然后被阻塞，然后等着响应回来的时候)
+            // 4、等待结果返回(当执行了responseFuture.waitResponse(timeoutMillis); 这行代码，当前线程就会wait ，然后被阻塞，
+            // 然后等着响应回来的时候，netty处理响应的线程会从响应里面获取一下这个opaque这个id，就是请求之前在request生成的，
+            // broker 在响应的时候会会把这个id 放回到response 中， 然后会根据这个opaque 从responseTable中找到这个 ResposeFuture ，
+            // 然后把响应设置到这个里面，最后唤醒一下wait在这个对象里面的线程就可以了，这样你这个业务线程就得到了这个RemotingResponse了
+
+            // 真正的执行流程是，可以看到上面channel.writeAndFlush()，往channel里面写了数据，而channel对应的pipeline中有一个NettyClientHandler
+            // 它接受到结果后会执行本类中的 processResponseCommand 方法，会根据这个response的opaque 从responseTable中找到这个ResponseFuture ，
+            // 这里注意一下，response中有opaque是因为broker 在响应的时候会会把这个id 放回到response 中
+            // 然后NettyClientHandler把响应设置到这个里面，同时countDownLatch.countDown()，这时候这里的waitResponse()里面的countDownLatch就被唤醒
+            // 同时由于NettyClientHandler把相应设置到responseFuture中了，所以这里从responseFuture也能获取到responseCommand
             RemotingCommand responseCommand = responseFuture.waitResponse(timeoutMillis);
             if (null == responseCommand) {
                 if (responseFuture.isSendRequestOK()) {
@@ -455,7 +470,7 @@ public abstract class NettyRemotingAbstract {
                     throw new RemotingTimeoutException(RemotingHelper.parseSocketAddressAddr(addr), timeoutMillis,
                         responseFuture.getCause());
                 } else {
-                    // 没发出去
+                    // 没发出去，抛出发送异常
                     throw new RemotingSendRequestException(RemotingHelper.parseSocketAddressAddr(addr), responseFuture.getCause());
                 }
             }
@@ -564,17 +579,17 @@ public abstract class NettyRemotingAbstract {
         throws InterruptedException, RemotingTooMuchRequestException, RemotingTimeoutException, RemotingSendRequestException {
         // 1、请求体，标记它是一个单向调用
         request.markOnewayRPC();
-        // 2、获取凭证
+        // 2、获取信号量
         boolean acquired = this.semaphoreOneway.tryAcquire(timeoutMillis, TimeUnit.MILLISECONDS);
         if (acquired) {
-            // 这里使用了semaphore进行限流，然后默认的话是同时支持65535 个请求发送的，这个semaphore 限流只有单向发送与这个异步发送会有，
+            // 这里使用了semaphore进行限流，然后默认的话是同时支持65535 个请求发送的，这个semaphore 限流只有单向发送与异步发送会有，
             final SemaphoreReleaseOnlyOnce once = new SemaphoreReleaseOnlyOnce(this.semaphoreOneway);
             try {
-                // 接着就会将这个request写入channel中，然后add了一个listener, 这个listener执行时机就是消息发送出去了，这个时候就会释放 信号量。
+                // 接着就会将这个request写入channel中，然后add了一个listener, 这个listener执行时机就是消息发送出去了，这个时候就会释放信号量。
                 channel.writeAndFlush(request).addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture f) throws Exception {
-                        // 释放信号量
+                        // 消息一旦发出去了，释放信号量
                         once.release();
                         if (!f.isSuccess()) {
                             log.warn("send a request command to channel <" + channel.remoteAddress() + "> failed.");
@@ -582,6 +597,7 @@ public abstract class NettyRemotingAbstract {
                     }
                 });
             } catch (Exception e) {
+                // 释放信号量
                 once.release();
                 log.warn("write send a request command to channel <" + channel.remoteAddress() + "> failed.");
                 throw new RemotingSendRequestException(RemotingHelper.parseChannelRemoteAddr(channel), e);
