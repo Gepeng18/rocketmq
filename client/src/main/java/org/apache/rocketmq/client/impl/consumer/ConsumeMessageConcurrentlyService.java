@@ -190,14 +190,19 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
         return result;
     }
 
+    /**
+     * 这一块就是拉取回来的消息个数正好在你批量消费范围之内的话，就直接封装ConsumeRequst，提交给线程池处理，
+     * 如果是拉取回来的消息个数大于你批量消费范围的话，就分批封装成ConsumeRequst，扔给线程池处理，默认批量消费是1个，
+     * 如果你拉回来32个消息，他就会给你封装成ConsumeRequst对象，扔到线程池中并发消费， 注意这个线程池core是20 ，maxCore是60 ，然后队列没有限制大小。
+     */
     @Override
     public void submitConsumeRequest(
         final List<MessageExt> msgs,
         final ProcessQueue processQueue,
         final MessageQueue messageQueue,
         final boolean dispatchToConsume) {
+        // 批量消费规模 默认是1个
         final int consumeBatchSize = this.defaultMQPushConsumer.getConsumeMessageBatchMaxSize();
-        //批量消费规模 默认是1个
         if (msgs.size() <= consumeBatchSize) {//消息正好在批量消费范围内
             //封装消费请求
             ConsumeRequest consumeRequest = new ConsumeRequest(msgs, processQueue, messageQueue);
@@ -245,6 +250,10 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
         }
     }
 
+    /**
+     * 这里这一段就是计算成功几个，然后失败几个的，这个ackIndex，你可以在消费的时候根据实际成功情况来确认ack，
+     * 当然你也可以不用设置，只要你消费的时候异常不往上抛，它就认为你消费成功了，一旦让它捕获到异常，你这一批消费都要被放到重试队列中。
+     */
     public void processConsumeResult(
         final ConsumeConcurrentlyStatus status,
         final ConsumeConcurrentlyContext context,
@@ -289,10 +298,14 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
                 }
                 break;
             case CLUSTERING: // 集群
+                /**
+                 * 这一块就是根据这个ackIndex，往后的消息它认为是失败的，然后发给broker 的重试队列中，进行重试消费，
+                 * 如果发送重试消息失败就加到集合中，等一会在本地再消费一下。
+                 */
                 List<MessageExt> msgBackFailed = new ArrayList<MessageExt>(consumeRequest.getMsgs().size());
                 for (int i = ackIndex + 1; i < consumeRequest.getMsgs().size(); i++) {
                     MessageExt msg = consumeRequest.getMsgs().get(i);
-                    // sendMessageBack
+                    // sendMessageBack：将失败的消息交给重试队列
                     boolean result = this.sendMessageBack(msg, context);
                     if (!result) {
                         msg.setReconsumeTimes(msg.getReconsumeTimes() + 1); // 重新消费次数 + 1
@@ -312,6 +325,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
         }
 
         // 这个offset 其实就是消费到哪的一个offset,然后如果这个treeMap里面还有数据的话,就返回那个最小的offset ,如果这个treeMap空了的话,就是offsetMax+1
+        // 这里实际就是在processQueue的treeMap中删除消费完的消息，获取一个最小的offset，更新本地对应的消费offset
         long offset = consumeRequest.getProcessQueue().removeMessage(consumeRequest.getMsgs());
         if (offset >= 0 && !consumeRequest.getProcessQueue().isDropped()) {
             // 更新一下这个offset
@@ -324,7 +338,9 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
     }
 
     /**
-     *  这个就是将失败的消息交给重试队列
+     *  这个就是将失败的消息发送到broker的重试队列中，可以看到有个延迟等级，
+     *  这个其实就是根据你的重试次数进行延迟消费的，这里默认的延迟等级是0，
+     *  但是到broker端，它发现你传过来的是0，它会给你设置成3+重试次数
      */
     public boolean sendMessageBack(final MessageExt msg, final ConsumeConcurrentlyContext context) {
         // 获取延迟等级
@@ -397,7 +413,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
                 return;
             }
 
-            //获取listener,这不就是用户自己定义的那个了
+            // do 获取listener,这不就是用户自己定义的那个了
             MessageListenerConcurrently listener = ConsumeMessageConcurrentlyService.this.messageListener;
             ConsumeConcurrentlyContext context = new ConsumeConcurrentlyContext(messageQueue);
             ConsumeConcurrentlyStatus status = null;
@@ -429,7 +445,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
                         MessageAccessor.setConsumeStartTimeStamp(msg, String.valueOf(System.currentTimeMillis()));
                     }
                 }
-                // 不允许更改
+                // do 调用用户定义的listener进行消费
                 status = listener.consumeMessage(Collections.unmodifiableList(msgs), context);
             } catch (Throwable e) {
                 log.warn(String.format("consumeMessage exception: %s Group: %s Msgs: %s MQ: %s",

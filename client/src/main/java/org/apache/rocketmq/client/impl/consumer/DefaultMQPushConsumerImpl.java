@@ -362,6 +362,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                                 // 接着就是向ConsumeMessageService这个服务提交消费请求，进行具体的消费，
                                 boolean dispatchToConsume = processQueue.putMessage(pullResult.getMsgFoundList());
                                 // do 提交进行消息消费
+                                // 第一个参数就是 从broker拉取的消息集合，然后第二个参数是ProcessQueue，第三个是对应的MessageQueue，第四个是要不要去消费
                                 DefaultMQPushConsumerImpl.this.consumeMessageService.submitConsumeRequest(
                                     pullResult.getMsgFoundList(),
                                     processQueue,
