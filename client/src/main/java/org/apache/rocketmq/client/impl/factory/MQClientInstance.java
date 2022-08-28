@@ -274,13 +274,13 @@ public class MQClientInstance {
                     // do 开启任务调度 启动一堆定时任务，包括获取nameServ，从nameServ获取topic，清理下线broker
                     this.startScheduledTask();
                     // Start pull service
-                    // 开启拉取消息服务
+                    // do 启动拉消息服务，这个服务主要是处理拉取消息请求的，这里的启动就是启动线程
                     this.pullMessageService.start();
                     // Start rebalance service
-                    // 开启负载均衡服务
+                    // do 启动rebalance服务，这里也是启动一个线程，它主要是做queue的负载的
                     this.rebalanceService.start();
                     // Start push service
-                    // DefaultMQPushConsumerImpl的启动
+                    // do 启动内置消息发送者，它主要是发送一些系统消息的
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
@@ -341,6 +341,7 @@ public class MQClientInstance {
             @Override
             public void run() {
                 try {
+                    // 每5s将 消费offset 向broker 报告一次或者是本地持久化一下，这个是要看你是消息集群模式还是广播模式
                     MQClientInstance.this.persistAllConsumerOffset();
                 } catch (Exception e) {
                     log.error("ScheduledTask persistAllConsumerOffset exception", e);
@@ -353,6 +354,7 @@ public class MQClientInstance {
             @Override
             public void run() {
                 try {
+                    // 1分钟调整一下线程池
                     MQClientInstance.this.adjustThreadPool();
                 } catch (Exception e) {
                     log.error("ScheduledTask adjustThreadPool exception", e);
@@ -514,7 +516,7 @@ public class MQClientInstance {
         // 心跳锁
         if (this.lockHeartbeat.tryLock()) {
             try {
-                // 送心跳到所有的broker上面
+                // 发送心跳到所有的broker上面
                 this.sendHeartbeatToAllBroker();
                 this.uploadFilterClassSource();
             } catch (final Exception e) {
@@ -575,10 +577,10 @@ public class MQClientInstance {
         return false;
     }
 
-    // 只向master发送心跳
+    // do 只向master发送心跳
     // 四件事，先是组装心跳信息，接着是遍历broker 地址表，找到master节点的broker 发送心跳，返回一个version信息，最后是更新broker 版本表中的对应的版本
     private void sendHeartbeatToAllBroker() {
-        // 准备心跳数据
+        // do 1、准备心跳数据
         final HeartbeatData heartbeatData = this.prepareHeartbeatData();
         final boolean producerEmpty = heartbeatData.getProducerDataSet().isEmpty();
         final boolean consumerEmpty = heartbeatData.getConsumerDataSet().isEmpty();
@@ -590,7 +592,7 @@ public class MQClientInstance {
         if (!this.brokerAddrTable.isEmpty()) {
             // 自增次数
             long times = this.sendHeartbeatTimesTotal.getAndIncrement();
-            // 遍历broker 地址信息表，然后找出master broker,交给api组件进行发送
+            // do 2、遍历broker 地址信息表，然后找出master broker,交给api组件进行发送
             Iterator<Entry<String, HashMap<Long, String>>> it = this.brokerAddrTable.entrySet().iterator();
             while (it.hasNext()) {
                 Entry<String, HashMap<Long, String>> entry = it.next();
@@ -602,18 +604,18 @@ public class MQClientInstance {
                         String addr = entry1.getValue();
                         if (addr != null) {
                             if (consumerEmpty) {
-                                // 不是master就跳过去
+                                // 不是master就跳过去（这个其实就是broker id 是0的就是master）
                                 if (id != MixAll.MASTER_ID)
                                     continue;
                             }
 
                             try {
-                                // 获取一个version
+                                // do 3、发送心跳，获取一个version
                                 int version = this.mQClientAPIImpl.sendHearbeat(addr, heartbeatData, clientConfig.getMqClientApiTimeout());
                                 if (!this.brokerVersionTable.containsKey(brokerName)) {
                                     this.brokerVersionTable.put(brokerName, new HashMap<String, Integer>(4));
                                 }
-                                // 地址 -> version
+                                // do 4、更新broker 版本表中的对应的版本： 地址 -> version
                                 this.brokerVersionTable.get(brokerName).put(addr, version);
                                 if (times % 20 == 0) {
                                     log.info("send heart beat to broker[{} {} {}] success", brokerName, id, addr);
@@ -701,7 +703,7 @@ public class MQClientInstance {
                         if (changed) {
                             TopicRouteData cloneTopicRouteData = topicRouteData.cloneTopicRouteData();
 
-                            // 遍历一下路由信息里面的brokerData 集合，然后更新下本地的broker地址信息表
+                            // do 遍历一下路由信息里面的brokerData 集合，然后更新下本地的broker地址信息表
                             for (BrokerData bd : topicRouteData.getBrokerDatas()) {
                                 // 这map里面然后就是缓存着broker name -> broker地址的集合
                                 this.brokerAddrTable.put(bd.getBrokerName(), bd.getBrokerAddrs());
@@ -774,7 +776,7 @@ public class MQClientInstance {
         // clientID
         heartbeatData.setClientID(this.clientId);
 
-        // Consumer
+        // 准备该进程中的所有Consumer信息
         for (Map.Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
             MQConsumerInner impl = entry.getValue();
             if (impl != null) {
@@ -1034,6 +1036,7 @@ public class MQClientInstance {
      * 开始调用{@link RebalanceService#run()}
      */
     public void rebalanceImmediately() {
+        // 唤醒rebalance服务
         this.rebalanceService.wakeup();
     }
 

@@ -44,6 +44,8 @@ import org.apache.rocketmq.common.protocol.heartbeat.SubscriptionData;
 public abstract class RebalanceImpl {
     protected static final InternalLogger log = ClientLogger.getLog();
     protected final ConcurrentMap<MessageQueue, ProcessQueue> processQueueTable = new ConcurrentHashMap<MessageQueue, ProcessQueue>(64);
+
+    // topic -> messageQueue集合
     protected final ConcurrentMap<String/* topic */, Set<MessageQueue>> topicSubscribeInfoTable =
         new ConcurrentHashMap<String, Set<MessageQueue>>();
     protected final ConcurrentMap<String /* topic */, SubscriptionData> subscriptionInner =
@@ -215,7 +217,7 @@ public abstract class RebalanceImpl {
     }
 
     public void doRebalance(final boolean isOrder) {
-        // 获取订阅表
+        // 获取订阅表，遍历所有订阅的topic来根据topic重新负载均衡
         Map<String, SubscriptionData> subTable = this.getSubscriptionInner();
         if (subTable != null) {
             for (final Map.Entry<String, SubscriptionData> entry : subTable.entrySet()) {
@@ -243,7 +245,8 @@ public abstract class RebalanceImpl {
      * 这个方法里面按照是集群消息还是广播消息做了判断，我们主要看下这个集群消息的rebalance是怎么做的
      *
      * 一共分为5步
-     * 第一步，主要是从topic订阅表中获取这个topic的所有MessageQueue，这些MessageQueue其实就是定时从namesrv拉取回来的，没印象的可以看下《RocketMQ源码解析之消息消费者（发送心跳给broker）》这篇文章，然后根据topic 与消费者组去broker 上面获取这个组的所有消费者实例，接下来就是一堆判断了。
+     * 第一步，主要是从topic订阅表中获取这个topic的所有MessageQueue，这些MessageQueue其实就是定时从namesrv拉取回来的，
+     * 没印象的可以看下《RocketMQ源码解析之消息消费者（发送心跳给broker）》这篇文章，然后根据topic 与消费者组去broker 上面获取这个组的所有消费者实例，接下来就是一堆判断了。
      * 第二步，就是排序了，将MessageQueue集合进行排序，将该组下的消费者实例集合进行排序，这个一步非常的重要，我们第三步的将负载均衡算法看完就知道了
      * 第三步，使用负载均衡算法进行重新负载，这里使用默认的AllocateMessageQueueAveragely 平均分配queue的算法。
      *
@@ -268,10 +271,11 @@ public abstract class RebalanceImpl {
                 }
                 break;
             }
+            // 集群是重点
             case CLUSTERING: {
                 // 获取mq
                 Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
-                // 获取这个topic的消费组的所有消费客户端
+                // do 1、获取到了这个group，获取这个topic的消费组的所有消费客户端
                 List<String> cidAll = this.mQClientFactory.findConsumerIdList(topic, consumerGroup);
                 if (null == mqSet) {
                     if (!topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
@@ -289,7 +293,7 @@ public abstract class RebalanceImpl {
                     List<MessageQueue> mqAll = new ArrayList<MessageQueue>();
                     mqAll.addAll(mqSet);
 
-                    // 进行排序，很重要，这样所有客户端都是这个顺序
+                    // do 2、进行排序，很重要，这样所有客户端都是这个顺序
                     Collections.sort(mqAll);
                     Collections.sort(cidAll);
 
@@ -299,7 +303,7 @@ public abstract class RebalanceImpl {
                     // 分配mq的结果
                     List<MessageQueue> allocateResult = null;
                     try {
-                        // 使用策略进行分配，默认是按照平均的方式
+                        // do 3、使用策略进行分配，默认是按照平均的方式（这里建议直接去看原博客）
                         allocateResult = strategy.allocate(
                             this.consumerGroup,
                             this.mQClientFactory.getClientId(),
@@ -316,7 +320,7 @@ public abstract class RebalanceImpl {
                         allocateResultSet.addAll(allocateResult);
                     }
 
-                    // 更新processQueue
+                    // do 4、更新processQueue
                     // 这个ProcessQueue与MessageQueue是一一对应的，后面的消息消费就是使用这个ProcessQueue
                     boolean changed = this.updateProcessQueueTableInRebalance(topic, allocateResultSet, isOrder);
                     if (changed) {
@@ -324,6 +328,7 @@ public abstract class RebalanceImpl {
                             "rebalanced result changed. allocateMessageQueueStrategyName={}, group={}, topic={}, clientId={}, mqAllSize={}, cidAllSize={}, rebalanceResultSize={}, rebalanceResultSet={}",
                             strategy.getName(), consumerGroup, topic, this.mQClientFactory.getClientId(), mqSet.size(), cidAll.size(),
                             allocateResultSet.size(), allocateResultSet);
+                        // do 5、
                         this.messageQueueChanged(topic, mqSet, allocateResultSet);
                     }
                 }
@@ -456,6 +461,7 @@ public abstract class RebalanceImpl {
         }
 
         // 派发去请求(循环找DefaultMQPushConsumer 的立即执行PullRequest方法)
+        // 这是一个非常重要的方法
         this.dispatchPullRequest(pullRequestList);
 
         return changed;

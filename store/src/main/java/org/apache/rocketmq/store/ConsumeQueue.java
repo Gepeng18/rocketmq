@@ -569,10 +569,15 @@ public class ConsumeQueue {
         }
     }
 
+    /**
+     * 根据index获取consumeQueue的buffer
+     * 其实就是计算出在ConsumeQueue中真实的偏移量，根据这个偏移量计算出在那个MappedFile中，然后从截取这个offset到MappedFile最后可读的那块buffer
+     */
     public SelectMappedBufferResult getIndexBuffer(final long startIndex) {
         int mappedFileSize = this.mappedFileSize;
-        long offset = startIndex * CQ_STORE_UNIT_SIZE;
+        long offset = startIndex * CQ_STORE_UNIT_SIZE; //size=20
         if (offset >= this.getMinLogicOffset()) {
+            // 根据offset 获取在哪个mappedFile中
             MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset);
             if (mappedFile != null) {
                 SelectMappedBufferResult result = mappedFile.selectMappedBuffer((int) (offset % mappedFileSize));

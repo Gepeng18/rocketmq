@@ -67,13 +67,17 @@ public class PullAPIWrapper {
         this.unitMode = unitMode;
     }
 
-    // 处理拉取消息的结果
+    /**
+     * 处理拉取消息的结果
+     * 这里有个比较重要的点，就是更新下次从哪个broker 上面去获取，这个其实就是broker 返回给你拉取结果的时候，
+     * 还会带给你建议下次去哪个broker上面获取，接着就是如果发现消息的话，进行解码，然后消息的过滤，消息的一些处理，
+     * 比如说下面的那个for循环里面的操作，然后返回处理完的PullResult。
+     */
     public PullResult processPullResult(final MessageQueue mq, final PullResult pullResult,
         final SubscriptionData subscriptionData) {
         PullResultExt pullResultExt = (PullResultExt) pullResult;
 
-        // 更新下次从哪个broker上面拉消息
-        // 更新下次从哪个broker 上面去获取，这个其实就是broker 返回给你拉取结果的时候，还会带给你建议下次去哪个broker上面获取
+        // 更新下次从哪个broker 上面去获取消息，这个其实就是broker 返回给你拉取结果的时候，还会带给你建议下次去哪个broker上面获取
         this.updatePullFromWhichNode(mq, pullResultExt.getSuggestWhichBrokerId());
         if (PullStatus.FOUND == pullResult.getPullStatus()) {
             ByteBuffer byteBuffer = ByteBuffer.wrap(pullResultExt.getMessageBinary());

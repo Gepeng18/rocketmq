@@ -89,26 +89,34 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
         return false;
     }
 
+    // do 真正处理流程
     private RemotingCommand processRequest(final Channel channel, RemotingCommand request, boolean brokerAllowSuspend)
         throws RemotingCommandException {
         final long beginTimeMills = this.brokerController.getMessageStore().now();
+        // 创建相应头
         RemotingCommand response = RemotingCommand.createResponseCommand(PullMessageResponseHeader.class);
         final PullMessageResponseHeader responseHeader = (PullMessageResponseHeader) response.readCustomHeader();
+
+        // 反序列化消息请求头
         final PullMessageRequestHeader requestHeader =
             (PullMessageRequestHeader) request.decodeCommandCustomHeader(PullMessageRequestHeader.class);
 
+        // 设置requestId
         response.setOpaque(request.getOpaque());
 
         log.debug("receive PullMessage request command, {}", request);
 
+        // 判断这个broker是不是可以读的
         if (!PermName.isReadable(this.brokerController.getBrokerConfig().getBrokerPermission())) {
             response.setCode(ResponseCode.NO_PERMISSION);
             response.setRemark(String.format("the broker[%s] pulling message is forbidden", this.brokerController.getBrokerConfig().getBrokerIP1()));
             return response;
         }
 
+        // 根据消费者组去订阅组管理器组件中获取这个订阅信息，判断存不存在，这个订阅信息在 消费者给broker发送心跳的时候就会带过来
         SubscriptionGroupConfig subscriptionGroupConfig =
             this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(requestHeader.getConsumerGroup());
+        // 订阅组不存在
         if (null == subscriptionGroupConfig) {
             response.setCode(ResponseCode.SUBSCRIPTION_GROUP_NOT_EXIST);
             response.setRemark(String.format("subscription group [%s] does not exist, %s", requestHeader.getConsumerGroup(), FAQUrl.suggestTodo(FAQUrl.SUBSCRIPTION_GROUP_NOT_EXIST)));
@@ -237,28 +245,42 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                 this.brokerController.getConsumerFilterManager());
         }
 
+        // do 非常重要的一个方法 ：去消息存储器中获取消息
         final GetMessageResult getMessageResult =
             this.brokerController.getMessageStore().getMessage(requestHeader.getConsumerGroup(), requestHeader.getTopic(),
                 requestHeader.getQueueId(), requestHeader.getQueueOffset(), requestHeader.getMaxMsgNums(), messageFilter);
+        /**
+         * 就是将下次从哪个offset 获取，本次最大最小offset 设置到response中，然后建议下次从哪个broker 拉取消息，默认是broker_id是1的，
+         * 下面那个switch就是判断slave角色让不让读的问题，不让读的话，就是让消息消费立马去master上拉消息去。
+         */
         if (getMessageResult != null) {
+            // 设置状态
             response.setRemark(getMessageResult.getStatus().name());
+            // 下次从哪个offset开始拉取
             responseHeader.setNextBeginOffset(getMessageResult.getNextBeginOffset());
+            // queue中的最小的offset
             responseHeader.setMinOffset(getMessageResult.getMinOffset());
+            // queue中最大的offset
             responseHeader.setMaxOffset(getMessageResult.getMaxOffset());
 
+            // 下次建议去哪拉消息，如果是从slave里拉取的话
             if (getMessageResult.isSuggestPullingFromSlave()) {
                 responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getWhichBrokerWhenConsumeSlowly());
             } else {
                 responseHeader.setSuggestWhichBrokerId(MixAll.MASTER_ID);
             }
 
+            // 判断broker的角色,主要是slave不让读的时候,
             switch (this.brokerController.getMessageStoreConfig().getBrokerRole()) {
                 case ASYNC_MASTER:
                 case SYNC_MASTER:
                     break;
-                case SLAVE:
+                case SLAVE: // 如果是slave
+                    // 这里就是slave不让读的话
                     if (!this.brokerController.getBrokerConfig().isSlaveReadEnable()) {
+                        // 设置让你重新拉取
                         response.setCode(ResponseCode.PULL_RETRY_IMMEDIATELY);
+                        //设置下次去master 上面拉取
                         responseHeader.setSuggestWhichBrokerId(MixAll.MASTER_ID);
                     }
                     break;
@@ -370,8 +392,8 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
             }
 
             switch (response.getCode()) {
-                case ResponseCode.SUCCESS:
-
+                case ResponseCode.SUCCESS: // 成功的话
+                    // 记录状态的
                     this.brokerController.getBrokerStatsManager().incGroupGetNums(requestHeader.getConsumerGroup(), requestHeader.getTopic(),
                         getMessageResult.getMessageCount());
 
@@ -379,11 +401,19 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                         getMessageResult.getBufferTotalSize());
 
                     this.brokerController.getBrokerStatsManager().incBrokerGetNums(getMessageResult.getMessageCount());
+                    /**
+                     * 这里有两种转换方式，其实也是传输方式吧，一个就是普通的io进行传输，将bytebuffer转成字节数组，设置到response中去，
+                     * 使用堆内存来处理的。一个就是使用ManyMessageTransfer来处理的，重写了transferTo方法。 默认是使用堆来完成转换的。
+                     */
+                    // do 默认是true 就是是否在heap内存中直接转换 就是将获取到byteBuffer 在heap内存中转换成 字节数组
                     if (this.brokerController.getBrokerConfig().isTransferMsgByHeap()) {
+                        // 进行转换
                         final byte[] r = this.readGetMessageResult(getMessageResult, requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId());
+                        // 记录一个转换的时间
                         this.brokerController.getBrokerStatsManager().incGroupGetLatency(requestHeader.getConsumerGroup(),
                             requestHeader.getTopic(), requestHeader.getQueueId(),
                             (int) (this.brokerController.getMessageStore().now() - beginTimeMills));
+                        // 设置到body中
                         response.setBody(r);
                     } else {
                         try {
@@ -461,11 +491,17 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
             response.setRemark("store getMessage return null");
         }
 
+        /**
+         * 这一段代码就是判断它这次拉取消息请求里面带没带着消费offset，如果带着的话，就找到ConsumerOffset组件，然后更新一下消费offset。
+         * 这个发现也是挺重要的，因为消息消费者除了定时任务5更新一下消费进度，还可以通过拉取消息的时候带着消费offset，进行消费进度的更新。
+         */
+        // true
         boolean storeOffsetEnable = brokerAllowSuspend;
         storeOffsetEnable = storeOffsetEnable && hasCommitOffsetFlag;
         storeOffsetEnable = storeOffsetEnable
             && this.brokerController.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE;
         if (storeOffsetEnable) {
+            // 进行提交offset
             this.brokerController.getConsumerOffsetManager().commitOffset(RemotingHelper.parseChannelRemoteAddr(channel),
                 requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId(), requestHeader.getCommitOffset());
         }

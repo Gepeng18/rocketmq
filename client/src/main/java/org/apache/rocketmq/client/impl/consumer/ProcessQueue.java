@@ -131,14 +131,16 @@ public class ProcessQueue {
     }
 
     /**
-     * 首先是获取写锁，然后遍历消息列表，将消息放到这个treeMap中，key就是消息的offset ，value就是那个消息，这个样子，
-     * 就会按照消息offset从小到大排列起来了，如果这个treeMap不是空的话，并且没有在消费状态，就要将它的消费状态设置成running，然后允许分发去消费。
+     * 首先是获取写锁，然后遍历消息列表，将消息放到这个treeMap中，key就是消息的offset ，value就是那个消息，
+     * 然后就会按照消息offset从小到大排列起来了，如果这个treeMap不是空的话，并且没有在消费状态，就要将它的消费状态设置成running，然后允许分发去消费。
      */
     public boolean putMessage(final List<MessageExt> msgs) {
         boolean dispatchToConsume = false;
         try {
+            // 获取读写锁
             this.treeMapLock.writeLock().lockInterruptibly();
             try {
+                // 有效的消息统计
                 int validMsgCnt = 0;
                 for (MessageExt msg : msgs) {
                     // 循环往treeMap中塞消息
@@ -155,7 +157,7 @@ public class ProcessQueue {
                 // 总的一个消费消息的大小
                 msgCount.addAndGet(validMsgCnt);
 
-                // 这个treeMap不是null的话，就没有消费
+                // 这个treeMap不是null的话或者没有消费
                 if (!msgTreeMap.isEmpty() && !this.consuming) {
                     dispatchToConsume = true;
                     this.consuming = true;
