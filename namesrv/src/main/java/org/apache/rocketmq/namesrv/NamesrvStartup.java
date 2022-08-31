@@ -83,7 +83,7 @@ public class NamesrvStartup {
             return null;
         }
 
-        // 创建NamesrvConfig
+        // 创建NamesrvConfig 和 NettyServerConfig
         final NamesrvConfig namesrvConfig = new NamesrvConfig();
         final NettyServerConfig nettyServerConfig = new NettyServerConfig();
         nettyServerConfig.setListenPort(9876);  // 设置netty监听端口是9876
@@ -147,7 +147,7 @@ public class NamesrvStartup {
 
         // 1、初始化
         boolean initResult = controller.initialize();
-        if (!initResult) {
+        if (!initResult) { // 初始化失败，就退出
             controller.shutdown();
             System.exit(-3);
         }

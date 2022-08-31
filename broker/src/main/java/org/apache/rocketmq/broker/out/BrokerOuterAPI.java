@@ -110,6 +110,9 @@ public class BrokerOuterAPI {
         this.remotingClient.updateNameServerAddressList(lst);
     }
 
+    /**
+     * 该方法分为两个部分，一是封装请求，二是进行注册
+     */
     public List<RegisterBrokerResult> registerBrokerAll(
         final String clusterName,
         final String brokerAddr,
@@ -126,7 +129,9 @@ public class BrokerOuterAPI {
         List<String> nameServerAddressList = this.remotingClient.getNameServerAddressList();
         if (nameServerAddressList != null && nameServerAddressList.size() > 0) {
 
+            // 封装注册请求头
             final RegisterBrokerRequestHeader requestHeader = new RegisterBrokerRequestHeader();
+            // 这些是broker基础信息
             requestHeader.setBrokerAddr(brokerAddr);
             requestHeader.setBrokerId(brokerId);
             requestHeader.setBrokerName(brokerName);
@@ -134,13 +139,29 @@ public class BrokerOuterAPI {
             requestHeader.setHaServerAddr(haServerAddr);
             requestHeader.setCompressed(compressed);
 
+            // 封装注册 请求内容
             RegisterBrokerBody requestBody = new RegisterBrokerBody();
+            // topic config（topicConfig表里面就是topic与topic配置的对应关系）
             requestBody.setTopicConfigSerializeWrapper(topicConfigWrapper);
+            // filter server list
             requestBody.setFilterServerList(filterServerList);
+            // 编码
             final byte[] body = requestBody.encode(compressed);
+            // crc
             final int bodyCrc32 = UtilAll.crc32(body);
             requestHeader.setBodyCrc32(bodyCrc32);
+            /**
+             * CountDownLatch这个这里就不多说了，不知道它是干嘛的同学可以找本并发编程的书籍研究下。
+             * 可以看到是for循环往线程池中添加向的namesrv进行注册的任务，多线程注册，
+             * 这里注意的是往所有namesrv（就是你配置的那些namesrv地址）中注册，然后将结果放到registerBrokerResultList集合中，
+             * 这个集合就是个普通的ArrayList，所以说这里可能会有并发问题。
+             * 最后就是countDownLatch等待所有的注册完成，可以看到，就算是超时也没事，超时时间默认是6s。关于是怎样发送请求的，
+             * 我们这里不需要care了，这涉及到RocketMQ网络组件部分，我们后面会有专门的模块来剖析它，
+             * 还有拿kafka网络模型与RocketMQ网络模型进行比较，到时候你会发现，它们虽然实现不一样，
+             * 但是都是使用reactor模型，1个线程负责连接，3个线程负责处理read ，write事件，8个线程负责业务逻辑的处理。
+             */
             final CountDownLatch countDownLatch = new CountDownLatch(nameServerAddressList.size());
+            // 多线程 注册
             for (final String namesrvAddr : nameServerAddressList) {
                 brokerOuterExecutor.execute(new Runnable() {
                     @Override
@@ -148,6 +169,7 @@ public class BrokerOuterAPI {
                         try {
                             RegisterBrokerResult result = registerBroker(namesrvAddr, oneway, timeoutMills, requestHeader, body);
                             if (result != null) {
+                                // do 放入集合中, PS: 总感觉有并发问题
                                 registerBrokerResultList.add(result);
                             }
 

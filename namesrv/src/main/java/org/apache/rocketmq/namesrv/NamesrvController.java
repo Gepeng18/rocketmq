@@ -68,13 +68,16 @@ public class NamesrvController {
         // 创建了路由信息管理器(topic相关)
         this.routeInfoManager = new RouteInfoManager();
         this.brokerHousekeepingService = new BrokerHousekeepingService(this);
+        // configuration
         this.configuration = new Configuration(
             log,
             this.namesrvConfig, this.nettyServerConfig
         );
+        // 设置
         this.configuration.setStorePathFromConfig(this.namesrvConfig, "configStorePath");
     }
 
+    // 初始化
     public boolean initialize() {
 
         // 将文件里的kv配置加载到内存里, kvconfig其实就是存储的一些键值对的配置，然后会有持久化的动作，
@@ -92,7 +95,7 @@ public class NamesrvController {
         // processor其实就是服务器收到请求后，看看执行的是什么命令，然后什么命令交给对应的那个processor
         this.registerProcessor();
 
-        // 创建了一个线程池，用于扫描broker，移除处于未激活的broker
+        // 创建了一个线程池，用于扫描broker，移除掉线的broker
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -165,6 +168,7 @@ public class NamesrvController {
     }
 
     public void start() throws Exception {
+        // 启动server
         this.remotingServer.start();
 
         if (this.fileWatchService != null) {

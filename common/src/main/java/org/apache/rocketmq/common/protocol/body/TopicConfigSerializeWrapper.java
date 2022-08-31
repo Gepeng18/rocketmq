@@ -24,8 +24,11 @@ import org.apache.rocketmq.common.TopicConfig;
 import org.apache.rocketmq.remoting.protocol.RemotingSerializable;
 
 public class TopicConfigSerializeWrapper extends RemotingSerializable {
+    // topic config表
+    // key是topic名字， value就是该topic对应的配置信息，比如说写mq数量，读mq数量，还有权限等等
     private ConcurrentMap<String, TopicConfig> topicConfigTable =
         new ConcurrentHashMap<String, TopicConfig>();
+    // dataVersion就是数据的版本，里面有一个计数器，版本发生了变化，计数器就+1。
     private DataVersion dataVersion = new DataVersion();
 
     public ConcurrentMap<String, TopicConfig> getTopicConfigTable() {

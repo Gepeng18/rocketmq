@@ -190,6 +190,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
 
     @Override
     public void start() {
+        // 创建了默认8个线程的事件处理组
         this.defaultEventExecutorGroup = new DefaultEventExecutorGroup(
             nettyServerConfig.getServerWorkerThreads(), // 8个线程
             new ThreadFactory() {
@@ -207,10 +208,10 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
         ServerBootstrap childHandler =
             this.serverBootstrap.group(this.eventLoopGroupBoss, this.eventLoopGroupSelector)
                 .channel(useEpoll() ? EpollServerSocketChannel.class : NioServerSocketChannel.class)
-                .option(ChannelOption.SO_BACKLOG, nettyServerConfig.getServerSocketBacklog())
-                .option(ChannelOption.SO_REUSEADDR, true)
+                .option(ChannelOption.SO_BACKLOG, nettyServerConfig.getServerSocketBacklog()) // backlog=1024（连接队列大小）
+                .option(ChannelOption.SO_REUSEADDR, true) // reuseaddr=true（为了快速启动）
                 .option(ChannelOption.SO_KEEPALIVE, false)
-                .childOption(ChannelOption.TCP_NODELAY, true)
+                .childOption(ChannelOption.TCP_NODELAY, true) // nodelay=true（不使用这个算法，为了时效性，用了这个算法发小包的话，它会给你等等攒着一块发）
                 // 这里默认是9876，在nameservstartup类中设置的
                 .localAddress(new InetSocketAddress(this.nettyServerConfig.getListenPort()))
                 .childHandler(new ChannelInitializer<SocketChannel>() {
@@ -264,7 +265,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
             this.nettyEventExecutor.start();
         }
 
-        // 有一个任务来扫描这个responseTable找出过期的
+        // 有一个任务来扫描这个responseTable找出过期的(异步调用时扫描过期的)
         this.timer.scheduleAtFixedRate(new TimerTask() {
 
             @Override

@@ -911,6 +911,7 @@ public class BrokerController {
         if (!messageStoreConfig.isEnableDLegerCommitLog()) {
             startProcessorByHa(messageStoreConfig.getBrokerRole());
             handleSlaveSynchronize(messageStoreConfig.getBrokerRole());
+            // 向nameSrv注册
             this.registerBrokerAll(true, false, true);
         }
 
@@ -956,12 +957,17 @@ public class BrokerController {
     }
 
     public synchronized void registerBrokerAll(final boolean checkOrderConfig, boolean oneway, boolean forceRegister) {
+        // build出来个TopicConfigSerializeWrapper
+        // (首先是去TopicConfigManager组件中，把本地的TopicConfig表中的数据与数据的版本封装成一个wrapper实体)
         TopicConfigSerializeWrapper topicConfigWrapper = this.getTopicConfigManager().buildTopicConfigSerializeWrapper();
 
+        // 不是可写或者不是可读
+        // (有的broker是不允许读的或者是不允许写的，这个时候，就会将这个broker上面的所有topic对应的mq权限设置成不可读或者是不可写)
         if (!PermName.isWriteable(this.getBrokerConfig().getBrokerPermission())
             || !PermName.isReadable(this.getBrokerConfig().getBrokerPermission())) {
             ConcurrentHashMap<String, TopicConfig> topicConfigTable = new ConcurrentHashMap<String, TopicConfig>();
             for (TopicConfig topicConfig : topicConfigWrapper.getTopicConfigTable().values()) {
+                //对所有的topic设置一下权限
                 TopicConfig tmp =
                     new TopicConfig(topicConfig.getTopicName(), topicConfig.getReadQueueNums(), topicConfig.getWriteQueueNums(),
                         this.brokerConfig.getBrokerPermission());
@@ -970,27 +976,34 @@ public class BrokerController {
             topicConfigWrapper.setTopicConfigTable(topicConfigTable);
         }
 
+        // 判断是否需要注册
         if (forceRegister || needRegister(this.brokerConfig.getBrokerClusterName(),
             this.getBrokerAddr(),
             this.brokerConfig.getBrokerName(),
             this.brokerConfig.getBrokerId(),
             this.brokerConfig.getRegisterBrokerTimeoutMills())) {
+            // do 进行注册
             doRegisterBrokerAll(checkOrderConfig, oneway, topicConfigWrapper);
         }
     }
 
     private void doRegisterBrokerAll(boolean checkOrderConfig, boolean oneway,
         TopicConfigSerializeWrapper topicConfigWrapper) {
+
+        // 注册broker(这个BokerOuterAPI组件主要就是与namesrv打交道的，里面封装了注册，下线，获取namesrv地址等方法)
         List<RegisterBrokerResult> registerBrokerResultList = this.brokerOuterAPI.registerBrokerAll(
-            this.brokerConfig.getBrokerClusterName(),
-            this.getBrokerAddr(),
-            this.brokerConfig.getBrokerName(),
-            this.brokerConfig.getBrokerId(),
-            this.getHAServerAddr(),
+            this.brokerConfig.getBrokerClusterName(), // broker集群名字
+            this.getBrokerAddr(), // broker 地址
+            this.brokerConfig.getBrokerName(), // broker名字
+            this.brokerConfig.getBrokerId(),  // broker id
+            this.getHAServerAddr(), // 提供给slave拉取的地址
             topicConfigWrapper,
+            // 构建filter server 列表
             this.filterServerManager.buildNewFilterServerList(),
             oneway,
+            // 注册超时时间,默认是6s
             this.brokerConfig.getRegisterBrokerTimeoutMills(),
+            // 是否压缩 默认是false
             this.brokerConfig.isCompressedRegister());
 
         if (registerBrokerResultList.size() > 0) {

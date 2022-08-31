@@ -131,39 +131,54 @@ public class RouteInfoManager {
         RegisterBrokerResult result = new RegisterBrokerResult();
         try {
             try {
+                // 1.集群信息维护
+                // 获取写锁
                 this.lock.writeLock().lockInterruptibly();
 
+                // 通过集群名字获取集群下面的所有broker集合
                 Set<String> brokerNames = this.clusterAddrTable.get(clusterName);
-                if (null == brokerNames) {
+                if (null == brokerNames) { // 没有的话就创建
                     brokerNames = new HashSet<String>();
                     this.clusterAddrTable.put(clusterName, brokerNames);
                 }
+                // 加broker 名字
                 brokerNames.add(brokerName);
 
+                // 2.broker地址信息表维护
+                // 是否是第一次注册
                 boolean registerFirst = false;
 
+                // 根据broker 名字获取 broker的数据
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                 if (null == brokerData) {
-                    registerFirst = true;
+                    registerFirst = true; // 第一次注册设置true
+                    // 封装 brokerData
                     brokerData = new BrokerData(clusterName, brokerName, new HashMap<Long, String>());
+                    // 放到缓存中
                     this.brokerAddrTable.put(brokerName, brokerData);
                 }
+
+                // 获取broker的addr们
                 Map<Long, String> brokerAddrsMap = brokerData.getBrokerAddrs();
                 //Switch slave to master: first remove <1, IP:PORT> in namesrv, then add <0, IP:PORT>
                 //The same IP:PORT must only have one record in brokerAddrTable
                 Iterator<Entry<Long, String>> it = brokerAddrsMap.entrySet().iterator();
                 while (it.hasNext()) {
                     Entry<Long, String> item = it.next();
+                    // 移除 地址相等,然后id不相等的那个
                     if (null != brokerAddr && brokerAddr.equals(item.getValue()) && brokerId != item.getKey()) {
                         it.remove();
                     }
                 }
 
+                // 老的addr
                 String oldAddr = brokerData.getBrokerAddrs().put(brokerId, brokerAddr);
+                // 根据 有没有老得addr || registerFirst来判断是否是第一次注册
                 registerFirst = registerFirst || (null == oldAddr);
 
+                // 3.topic配置信息表的维护
                 if (null != topicConfigWrapper
-                    && MixAll.MASTER_ID == brokerId) {
+                    && MixAll.MASTER_ID == brokerId) { // 是master
                     if (this.isBrokerTopicConfigChanged(brokerAddr, topicConfigWrapper.getDataVersion())
                         || registerFirst) {
                         ConcurrentMap<String, TopicConfig> tcTable =
@@ -176,16 +191,19 @@ public class RouteInfoManager {
                     }
                 }
 
+                // 4.broker 存活信息表维护
+                // 创建live信息,然后放到缓存中
                 BrokerLiveInfo prevBrokerLiveInfo = this.brokerLiveTable.put(brokerAddr,
                     new BrokerLiveInfo(
                         System.currentTimeMillis(),
                         topicConfigWrapper.getDataVersion(),
                         channel,
                         haServerAddr));
-                if (null == prevBrokerLiveInfo) {
+                if (null == prevBrokerLiveInfo) { // 如果之前没有addr的这个BrokerLiveInfo对象,说明是第一次注册
                     log.info("new broker registered, {} HAServer: {}", brokerAddr, haServerAddr);
                 }
 
+                // 5.过滤器表的维护
                 if (filterServerList != null) {
                     if (filterServerList.isEmpty()) {
                         this.filterServerTable.remove(brokerAddr);
@@ -194,17 +212,21 @@ public class RouteInfoManager {
                     }
                 }
 
+                // 如果这个broker不是master
                 if (MixAll.MASTER_ID != brokerId) {
+                    // 获取master的地址
                     String masterAddr = brokerData.getBrokerAddrs().get(MixAll.MASTER_ID);
                     if (masterAddr != null) {
                         BrokerLiveInfo brokerLiveInfo = this.brokerLiveTable.get(masterAddr);
                         if (brokerLiveInfo != null) {
+                            // 往result中设置ha地址与master地址
                             result.setHaServerAddr(brokerLiveInfo.getHaServerAddr());
                             result.setMasterAddr(masterAddr);
                         }
                     }
                 }
             } finally {
+                // 释放 写锁
                 this.lock.writeLock().unlock();
             }
         } catch (Exception e) {
@@ -242,6 +264,7 @@ public class RouteInfoManager {
         queueData.setPerm(topicConfig.getPerm());
         queueData.setTopicSysFlag(topicConfig.getTopicSysFlag());
 
+        // do
         List<QueueData> queueDataList = this.topicQueueTable.get(topicConfig.getTopicName());
         if (null == queueDataList) {
             queueDataList = new LinkedList<QueueData>();
@@ -425,7 +448,7 @@ public class RouteInfoManager {
             try {
                 // 1、获取读锁
                 this.lock.readLock().lockInterruptibly();
-                // 2、根据topic获取queueData列表
+                // 2、do 根据topic获取queueData列表
                 List<QueueData> queueDataList = this.topicQueueTable.get(topic);
                 if (queueDataList != null) {
                     topicRouteData.setQueueDatas(queueDataList);
@@ -437,8 +460,9 @@ public class RouteInfoManager {
                         QueueData qd = it.next();
                         brokerNameSet.add(qd.getBrokerName());
                     }
-                    // 再根据brokerName去broker的地址表中获取broker信息
+                    // do 再根据brokerName去broker的地址表中获取broker信息
                     for (String brokerName : brokerNameSet) {
+                        // 根据broker名字获取broker信息
                         BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                         if (null != brokerData) {
                             BrokerData brokerDataClone = new BrokerData(brokerData.getCluster(), brokerData.getBrokerName(), (HashMap<Long, String>) brokerData

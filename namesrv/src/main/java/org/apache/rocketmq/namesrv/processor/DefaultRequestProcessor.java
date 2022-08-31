@@ -93,7 +93,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
                 return queryBrokerTopicConfig(ctx, request);
             case RequestCode.REGISTER_BROKER:
                 // 注册broker
-                // 获取版本
+                // 获取版本，做版本兼容
                 Version brokerVersion = MQVersion.value2Version(request.getVersion());
                 // 根据版本是否大于V3_0_11，调用不同的注册函数
                 if (brokerVersion.ordinal() >= MQVersion.Version.V3_0_11.ordinal()) {
@@ -102,9 +102,10 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
                     return this.registerBroker(ctx, request);
                 }
             case RequestCode.UNREGISTER_BROKER:
+                // 注销broker
                 return this.unregisterBroker(ctx, request);
             case RequestCode.GET_ROUTEINFO_BY_TOPIC:
-                // 根据topic获取路由信息
+                // do 根据topic获取路由信息
                 return this.getRouteInfoByTopic(ctx, request);
             case RequestCode.GET_BROKER_CLUSTER_INFO:
                 // 获取broker集群信息
@@ -232,6 +233,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
             registerBrokerBody.getTopicConfigSerializeWrapper().getDataVersion().setTimestamp(0);
         }
 
+        // do 进行注册
         RegisterBrokerResult result = this.namesrvController.getRouteInfoManager().registerBroker(
             requestHeader.getClusterName(),
             requestHeader.getBrokerAddr(),
@@ -357,13 +359,13 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
         RemotingCommand request) throws RemotingCommandException {
         // 1、创建response
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-        // 2、创建请求头
+        // 2、解析请求header
         final GetRouteInfoRequestHeader requestHeader =
             (GetRouteInfoRequestHeader) request.decodeCommandCustomHeader(GetRouteInfoRequestHeader.class);
 
-        // 3、获取topic的路由信息
+        // 3、do 获取topic的路由信息（将topic 交给RouteInfoManager 的pickupTopicRouteData 方法获取topic对应的TopicRouteData）
         TopicRouteData topicRouteData = this.namesrvController.getRouteInfoManager().pickupTopicRouteData(requestHeader.getTopic());
-        // 如果获取到了
+        // 如果获取到的不是null的话，就序列化，然后塞到response中，设置响应code，最后返回
         if (topicRouteData != null) {
             // 是否支持顺序消息，默认为false
             if (this.namesrvController.getNamesrvConfig().isOrderMessageEnable()) {
@@ -372,7 +374,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
                         requestHeader.getTopic());
                 topicRouteData.setOrderTopicConf(orderTopicConf);
             }
-            // 组装响应并返回
+            // 组装响应并返回,序列化json
             byte[] content = topicRouteData.encode();
             response.setBody(content);
             response.setCode(ResponseCode.SUCCESS);
