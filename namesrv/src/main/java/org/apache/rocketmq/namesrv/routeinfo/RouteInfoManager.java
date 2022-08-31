@@ -158,6 +158,10 @@ public class RouteInfoManager {
                     this.brokerAddrTable.put(brokerName, brokerData);
                 }
 
+                /**
+                 * 因为RocketMQ是master/slave架构，他们的broker name 是一样的，然后通过brokerId区分哪个是master，哪些是slave，
+                 * 他这里就是拿到同一个broker name下的所有broker的地址，然后进行遍历比对，找出那种地址与该需要注册的地址相等，然后brokerId不相等的。
+                 */
                 // 获取broker的addr们
                 Map<Long, String> brokerAddrsMap = brokerData.getBrokerAddrs();
                 //Switch slave to master: first remove <1, IP:PORT> in namesrv, then add <0, IP:PORT>
@@ -171,12 +175,12 @@ public class RouteInfoManager {
                     }
                 }
 
-                // 老的addr
+                // 上面代码把地址相同，但是id不同的addr移除了，现在把最新的加上
                 String oldAddr = brokerData.getBrokerAddrs().put(brokerId, brokerAddr);
                 // 根据 有没有老得addr || registerFirst来判断是否是第一次注册
                 registerFirst = registerFirst || (null == oldAddr);
 
-                // 3.topic配置信息表的维护
+                // 3.topic配置信息表的维护，感觉就是队列表的信息维护
                 if (null != topicConfigWrapper
                     && MixAll.MASTER_ID == brokerId) { // 是master
                     if (this.isBrokerTopicConfigChanged(brokerAddr, topicConfigWrapper.getDataVersion())
@@ -212,7 +216,7 @@ public class RouteInfoManager {
                     }
                 }
 
-                // 如果这个broker不是master
+                // 如果这个来注册的broker不是master
                 if (MixAll.MASTER_ID != brokerId) {
                     // 获取master的地址
                     String masterAddr = brokerData.getBrokerAddrs().get(MixAll.MASTER_ID);
@@ -256,6 +260,11 @@ public class RouteInfoManager {
         }
     }
 
+    /**
+     * 其实就是根据topic获取对应的QueueData集合，因为一个topic可以分布在多个broker 上面，然后这里使用list存储的，
+     * 如果topic对应的队列不存在，就创建相应的list集合，然后put到topicQueue表中，如果存在了就进行遍历，看看之前有没有存在，
+     * 如果之前设置过然后数据也没发生变化就不用操作，如果发生了变化，移除，重新添加。
+     */
     private void createAndUpdateQueueData(final String brokerName, final TopicConfig topicConfig) {
         QueueData queueData = new QueueData();
         queueData.setBrokerName(brokerName);
