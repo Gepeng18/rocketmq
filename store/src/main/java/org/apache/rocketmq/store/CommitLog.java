@@ -641,18 +641,24 @@ public class CommitLog {
             if (msg.getDelayTimeLevel() > 0) {
                 // 延迟消息的处理
                 if (msg.getDelayTimeLevel() > this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel()) {
+                    //如果延时级别大于最大值，则置为最大值
                     msg.setDelayTimeLevel(this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel());
                 }
 
                 // 设置延迟队列
+                //一个名为“SCHEDULE_TOPIC_XXXX”的特殊topic常量名
                 topic = TopicValidator.RMQ_SYS_SCHEDULE_TOPIC;
+                // 队列号为delayLevel - 1(延时级别减1)
+                // 其实你有没有发现，他的实现与事务消息的差不多，都是修改topic 与queueId
                 int queueId = ScheduleMessageService.delayLevel2QueueId(msg.getDelayTimeLevel());
 
                 // Backup real topic, queueId
+                //将消息的真实topic和queueId设置为其他属性保存
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_TOPIC, msg.getTopic());
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_QUEUE_ID, String.valueOf(msg.getQueueId()));
                 msg.setPropertiesString(MessageDecoder.messageProperties2String(msg.getProperties()));
 
+                //重新设置消息的topic为“SCHEDULE_TOPIC_XXXX”
                 msg.setTopic(topic);
                 msg.setQueueId(queueId);
             }

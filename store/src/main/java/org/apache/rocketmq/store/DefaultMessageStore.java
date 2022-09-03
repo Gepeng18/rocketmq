@@ -1711,12 +1711,18 @@ public class DefaultMessageStore implements MessageStore {
         return brokerStatsManager;
     }
 
+    /**
+     * broker启动定时任务
+     */
     @Override
     public void handleScheduleMessageService(final BrokerRole brokerRole) {
         if (this.scheduleMessageService != null) {
             if (brokerRole == BrokerRole.SLAVE) {
+                // slave没必要执行该任务
                 this.scheduleMessageService.shutdown();
             } else {
+                // 定义一个timer，设置几个定时任务（定时任务的数量与延迟等级是有关系的，一个任务对应一个定时任务）
+                // 不断的扫SCHEDULE_TOPIC_XXXX这个topic的消息。
                 this.scheduleMessageService.start();
             }
         }

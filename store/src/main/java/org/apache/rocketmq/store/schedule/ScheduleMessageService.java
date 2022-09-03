@@ -126,15 +126,19 @@ public class ScheduleMessageService extends ConfigManager {
     }
 
     public void start() {
+        // cas乐观锁保证线程安全
         if (started.compareAndSet(false, true)) {
             super.load();
             this.deliverExecutorService = new ScheduledThreadPoolExecutor(this.maxDelayLevel, new ThreadFactoryImpl("ScheduleMessageTimerThread_"));
             if (this.enableAsyncDeliver) {
                 this.handleExecutorService = new ScheduledThreadPoolExecutor(this.maxDelayLevel, new ThreadFactoryImpl("ScheduleMessageExecutorHandleThread_"));
             }
+            // 遍历延时等级表，然后往timer里面添加延时任务
             for (Map.Entry<Integer, Long> entry : this.delayLevelTable.entrySet()) {
+                // 遍历延时级别
                 Integer level = entry.getKey();
                 Long timeDelay = entry.getValue();
+                // 取出这个等级的offset
                 Long offset = this.offsetTable.get(level);
                 if (null == offset) {
                     offset = 0L;
@@ -144,10 +148,12 @@ public class ScheduleMessageService extends ConfigManager {
                     if (this.enableAsyncDeliver) {
                         this.handleExecutorService.schedule(new HandlePutResultTask(level), FIRST_DELAY_TIME, TimeUnit.MILLISECONDS);
                     }
+                    //为每一个延时级别创建一个分发延时消息任务，首次启动延迟1s
                     this.deliverExecutorService.schedule(new DeliverDelayedMessageTimerTask(level, offset), FIRST_DELAY_TIME, TimeUnit.MILLISECONDS);
                 }
             }
 
+            // 每10s执行一次持久化任务。这个持久化任务其实不用担心，就是往磁盘里面写下，延时等级对应的offset。
             this.deliverExecutorService.scheduleAtFixedRate(new Runnable() {
 
                 @Override
@@ -280,10 +286,12 @@ public class ScheduleMessageService extends ConfigManager {
         timeUnitTable.put("h", 1000L * 60 * 60);
         timeUnitTable.put("d", 1000L * 60 * 60 * 24);
 
+        //不同延时时间的字符串
         String levelString = this.defaultMessageStore.getMessageStoreConfig().getMessageDelayLevel();
         try {
             String[] levelArray = levelString.split(" ");
             for (int i = 0; i < levelArray.length; i++) {
+                // 这一段代码就干了一件事，将 2h 这个字符串转化为 2*3600，然后存到一个map中
                 String value = levelArray[i];
                 String ch = value.substring(value.length() - 1);
                 Long tu = timeUnitTable.get(ch);
@@ -294,6 +302,7 @@ public class ScheduleMessageService extends ConfigManager {
                 }
                 long num = Long.parseLong(value.substring(0, value.length() - 1));
                 long delayTimeMillis = tu * num;
+                //存放延时级别与延时时长的对应关系
                 this.delayLevelTable.put(level, delayTimeMillis);
                 if (this.enableAsyncDeliver) {
                     this.deliverPendingTable.put(level, new LinkedBlockingQueue<>());
@@ -351,6 +360,7 @@ public class ScheduleMessageService extends ConfigManager {
         public void run() {
             try {
                 if (isStarted()) {
+                    // 执行
                     this.executeOnTimeup();
                 }
             } catch (Exception e) {
@@ -375,7 +385,15 @@ public class ScheduleMessageService extends ConfigManager {
             return result;
         }
 
+        /**
+         * 这个方法首先是获取对应延迟等级的consumeQueue这个队列，取出offset往后的消息，进行遍历，找出每个unit对应的commitlog真实offset，
+         * 然后通过commitlog offset 从commitlog获取到真实的那个消息，根据它的存储实现与延迟时间，算出与真实交付时间的差值，
+         * 如果是小于等于0的话，说明延迟时间到了，这个时候就要暴露给消息消费者了，它就会将topic与queueId转成之前的那个topic queueId，
+         * 然后重新扔到commitlog中，这个时候通过reput线程的dispatch处理，消息消费者就能发现这个消息并消费，如果这个差值还不够的话，
+         * 重新创建调度任务，然后延迟执行时间是这个差值，扔到timer中。
+         */
         public void executeOnTimeup() {
+            // 从SCHEDULE_TOPIC_XXXX中获取对应特定延时等级的消息
             ConsumeQueue cq =
                 ScheduleMessageService.this.defaultMessageStore.findConsumeQueue(TopicValidator.RMQ_SYS_SCHEDULE_TOPIC,
                     delayLevel2QueueId(delayLevel));
@@ -385,6 +403,7 @@ public class ScheduleMessageService extends ConfigManager {
                 return;
             }
 
+            // 取出消息
             SelectMappedBufferResult bufferCQ = cq.getIndexBuffer(this.offset);
             if (bufferCQ == null) {
                 long resetOffset;
@@ -406,6 +425,7 @@ public class ScheduleMessageService extends ConfigManager {
             try {
                 int i = 0;
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
+                // 遍历取
                 for (; i < bufferCQ.getSize() && isStarted(); i += ConsumeQueue.CQ_STORE_UNIT_SIZE) {
                     long offsetPy = bufferCQ.getByteBuffer().getLong();
                     int sizePy = bufferCQ.getByteBuffer().getInt();
@@ -418,26 +438,35 @@ public class ScheduleMessageService extends ConfigManager {
                             //can't find ext content.So re compute tags code.
                             log.error("[BUG] can't find consume queue extend file content!addr={}, offsetPy={}, sizePy={}",
                                 tagsCode, offsetPy, sizePy);
+                            // 消息存入时间
                             long msgStoreTime = defaultMessageStore.getCommitLog().pickupStoreTimestamp(offsetPy, sizePy);
+                            // 计算交付时间
                             tagsCode = computeDeliverTimestamp(delayLevel, msgStoreTime);
                         }
                     }
 
+                    // 当前时间
                     long now = System.currentTimeMillis();
+                    // 消息经过延时后应该被发送的真实时间
                     long deliverTimestamp = this.correctDeliverTimestamp(now, tagsCode);
                     nextOffset = offset + (i / ConsumeQueue.CQ_STORE_UNIT_SIZE);
 
+                    // 还需要等待的时间
                     long countdown = deliverTimestamp - now;
                     if (countdown > 0) {
+                        // countdown>0，即消息还未过期，即还需要等待countdown毫秒
+                        // 延期countdown毫秒进行递归，这里设计的很巧妙，直接延期到消息发送的时间点，就不用反复判断是否过期了
                         this.scheduleNextTimerTask(nextOffset, DELAY_FOR_A_WHILE);
                         return;
                     }
 
+                    //已经到期无需等待，则拿出消息
                     MessageExt msgExt = ScheduleMessageService.this.defaultMessageStore.lookMessageByOffset(offsetPy, sizePy);
                     if (msgExt == null) {
                         continue;
                     }
 
+                    // 将延时消息转化为普通消息（还记得上文`CommitLog.java`中将普通消息转化为了延时消息么）
                     MessageExtBrokerInner msgInner = ScheduleMessageService.this.messageTimeup(msgExt);
                     if (TopicValidator.RMQ_SYS_TRANS_HALF_TOPIC.equals(msgInner.getTopic())) {
                         log.error("[BUG] the real topic of schedule msg is {}, discard the msg. msg={}",
@@ -446,6 +475,7 @@ public class ScheduleMessageService extends ConfigManager {
                     }
 
                     boolean deliverSuc;
+                    // 将消息发送至目的地topic，即写到 commitlog中
                     if (ScheduleMessageService.this.enableAsyncDeliver) {
                         deliverSuc = this.asyncDeliver(msgInner, msgExt.getMsgId(), offset, offsetPy, sizePy);
                     } else {
@@ -453,11 +483,14 @@ public class ScheduleMessageService extends ConfigManager {
                     }
 
                     if (!deliverSuc) {
+                        // 猜测：这么做主要是为了防止os cache 繁忙
+                        // 延迟一段时间  100L  = 0.1s
                         this.scheduleNextTimerTask(nextOffset, DELAY_FOR_A_WHILE);
                         return;
                     }
                 }
 
+                // 更新 这个等级的offset
                 nextOffset = this.offset + (i / ConsumeQueue.CQ_STORE_UNIT_SIZE);
             } catch (Exception e) {
                 log.error("ScheduleMessageService, messageTimeup execute error, offset = {}", nextOffset, e);
@@ -465,6 +498,7 @@ public class ScheduleMessageService extends ConfigManager {
                 bufferCQ.release();
             }
 
+            // 没有找到延时消息,则延时0.1s再次启动该定时器递归
             this.scheduleNextTimerTask(nextOffset, DELAY_FOR_A_WHILE);
         }
 
