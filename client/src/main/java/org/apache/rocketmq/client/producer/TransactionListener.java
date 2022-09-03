@@ -48,7 +48,7 @@ import org.apache.rocketmq.common.message.MessageExt;
  * 然后进行存储，这个时候存储就存储到了 你设置到的那个topic里面了。存储成功之后将 形成一个删除消息 然后放到RMQ_SYS_TRANS_OP_HALF_TOPIC topic 里面。
  * 放到你原来那个topic里面，你的消费者就可以消费了
  * （3）如果你本地事务失败，然后就要rollback 了，这个时候先从RMQ_SYS_TRANS_HALF_TOPIC topic里面找到你那个消息，然后形成一个删除消息
- * 然后放到RMQ_SYS_TRANS_OP_HALF_TOPIC topic 里面。
+ * 然后放到RMQ_SYS_TRANS_OP_HALF_TOPIC topic 里面。[和本地事务执行成功的区别就是转存topic这一步没做]
  * （4）出现网络问题或者服务挂了怎么办？
  * 如果你在发送消息的时候出现了问题，消息是使用同步发送，然后会重试，然后会抛出异常，发送失败，你的本地事务也就不用执行了。
  * 如果你告诉broker 提交事务或者回滚事务的时候出现了问题怎么办？这时候broker 会有个事务服务线程，隔一段时间就扫描RMQ_SYS_TRANS_HALF_TOPIC topic

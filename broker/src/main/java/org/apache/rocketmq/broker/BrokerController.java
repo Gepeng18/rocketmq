@@ -504,6 +504,9 @@ public class BrokerController {
         return result;
     }
 
+    /**
+     * 初始化 事务相关的
+     */
     private void initialTransaction() {
         this.transactionalMessageService = ServiceProvider.loadClass(ServiceProvider.TRANSACTION_SERVICE_ID, TransactionalMessageService.class);
         if (null == this.transactionalMessageService) {
@@ -512,10 +515,12 @@ public class BrokerController {
         }
         this.transactionalMessageCheckListener = ServiceProvider.loadClass(ServiceProvider.TRANSACTION_LISTENER_ID, AbstractTransactionalMessageCheckListener.class);
         if (null == this.transactionalMessageCheckListener) {
+            // 事务消息检查监听器
             this.transactionalMessageCheckListener = new DefaultTransactionalMessageCheckListener();
             log.warn("Load default discard message hook service: {}", DefaultTransactionalMessageCheckListener.class.getSimpleName());
         }
         this.transactionalMessageCheckListener.setBrokerController(this);
+        // 事务消息检查服务
         this.transactionalMessageCheckService = new TransactionalMessageCheckService(this);
     }
 

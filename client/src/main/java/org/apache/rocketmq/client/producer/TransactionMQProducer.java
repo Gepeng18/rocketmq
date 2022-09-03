@@ -86,6 +86,7 @@ public class TransactionMQProducer extends DefaultMQProducer {
     @Override
     public TransactionSendResult sendMessageInTransaction(final Message msg,
         final Object arg) throws MQClientException {
+        // 检查listener ，就是咱们编程需要实现的那个listener，里面有执行本地事务，然后检查本地事务的方法
         if (null == this.transactionListener) {
             throw new MQClientException("TransactionListener is null", null);
         }

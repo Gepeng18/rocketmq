@@ -223,10 +223,12 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
                             || (opMsg != null && (opMsg.get(opMsg.size() - 1).getBornTimestamp() - startTime > transactionTimeout))
                             || (valueOfCurrentMinusBorn <= -1);
 
-                        if (isNeedCheck) {
+                        if (isNeedCheck) { // 是否需要检查
+                            // 重新塞到了commitlog中,然后修改了msgExt中queue offset, commitlog offset,
                             if (!putBackHalfMsgQueue(msgExt, i)) {
                                 continue;
                             }
+                            // 发送
                             listener.resolveHalfMsg(msgExt);
                         } else {
                             pullResult = fillOpRemoveMap(removeMap, opQueue, pullResult.getNextBeginOffset(), halfOffset, doneOpOffset);
@@ -452,9 +454,12 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
 
     private OperationResult getHalfMessageByOffset(long commitLogOffset) {
         OperationResult response = new OperationResult();
+        // 获取到这个offset的消息
         MessageExt messageExt = this.transactionalMessageBridge.lookMessageByOffset(commitLogOffset);
         if (messageExt != null) {
+            // 将消息设置到response
             response.setPrepareMessage(messageExt);
+            // 设置成功标识
             response.setResponseCode(ResponseCode.SUCCESS);
         } else {
             response.setResponseCode(ResponseCode.SYSTEM_ERROR);
@@ -465,6 +470,7 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
 
     @Override
     public boolean deletePrepareMessage(MessageExt msgExt) {
+        // 将消息放到 op topic里面
         if (this.transactionalMessageBridge.putOpMessage(msgExt, TransactionalMessageUtil.REMOVETAG)) {
             log.debug("Transaction op message write successfully. messageId={}, queueId={} msgExt:{}", msgExt.getMsgId(), msgExt.getQueueId(), msgExt);
             return true;

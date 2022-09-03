@@ -47,14 +47,21 @@ public abstract class ServiceThread implements Runnable {
 
     public abstract String getServiceName();
 
+    /**
+     * 启动任务
+     */
     public void start() {
         log.info("Try to start service thread:{} started:{} lastThread:{}", getServiceName(), started.get(), thread);
+        // 设置启动状态
         if (!started.compareAndSet(false, true)) {
             return;
         }
-        stopped = false;
+        stopped = false; // 停止状态
+        // 创建线程
         this.thread = new Thread(this, getServiceName());
+        // 设置为守护线程
         this.thread.setDaemon(isDaemon);
+        // 启动线程
         this.thread.start();
     }
 
@@ -132,6 +139,7 @@ public abstract class ServiceThread implements Runnable {
     }
 
     protected void waitForRunning(long interval) {
+        // 第一次 false
         if (hasNotified.compareAndSet(true, false)) {
             this.onWaitEnd();
             return;
@@ -145,6 +153,7 @@ public abstract class ServiceThread implements Runnable {
         } catch (InterruptedException e) {
             log.error("Interrupted", e);
         } finally {
+            // 设置为false
             hasNotified.set(false);
             this.onWaitEnd();
         }
