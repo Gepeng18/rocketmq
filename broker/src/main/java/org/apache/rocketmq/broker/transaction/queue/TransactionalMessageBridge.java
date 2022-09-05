@@ -201,6 +201,7 @@ public class TransactionalMessageBridge {
     }
 
     public CompletableFuture<PutMessageResult> asyncPutHalfMessage(MessageExtBrokerInner messageInner) {
+        // parseHalfMessageInner 是RocketMQ事务消息实现的精髓
         return store.asyncPutMessage(parseHalfMessageInner(messageInner));
     }
 
@@ -222,6 +223,7 @@ public class TransactionalMessageBridge {
 
     public boolean putOpMessage(MessageExt messageExt, String opType) {
         // 封装msg queue
+        // (创建一个queue，topic 就是half topic ，broker就是自己这个， queueId就是0)
         MessageQueue messageQueue = new MessageQueue(messageExt.getTopic(),
             this.brokerController.getBrokerConfig().getBrokerName(), messageExt.getQueueId());
         if (TransactionalMessageUtil.REMOVETAG.equals(opType)) {
@@ -318,7 +320,7 @@ public class TransactionalMessageBridge {
      */
     private boolean addRemoveTagInTransactionOp(MessageExt prepareMessage, MessageQueue messageQueue) {
         // 封装一个删除消息标识
-        // 里面内容: op topic , tag是删除, 消息内容是 queueOffset
+        // 里面内容: op topic , tag是删除remove, 消息内容是 queueOffset
         Message message = new Message(TransactionalMessageUtil.buildOpTopic(), TransactionalMessageUtil.REMOVETAG,
             String.valueOf(prepareMessage.getQueueOffset()).getBytes(TransactionalMessageUtil.charset));
         // 写op消息

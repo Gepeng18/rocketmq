@@ -508,11 +508,16 @@ public class BrokerController {
      * 初始化 事务相关的
      */
     private void initialTransaction() {
+        // 先使用spi（这个spi是RocketMQ自己处理过的）获取TransactionalMessageService的实现类，默认是没有的
         this.transactionalMessageService = ServiceProvider.loadClass(ServiceProvider.TRANSACTION_SERVICE_ID, TransactionalMessageService.class);
         if (null == this.transactionalMessageService) {
+            // 创建一个TransactionalMessageBridge 这个玩意就是事务消息服务组件用来与存储器交互使用的，可以从名字上看出来Bridge
+            // 再就是创建事务消息服务组件了
             this.transactionalMessageService = new TransactionalMessageServiceImpl(new TransactionalMessageBridge(this, this.getMessageStore()));
             log.warn("Load default transaction message hook service: {}", TransactionalMessageServiceImpl.class.getSimpleName());
         }
+        // 然后也是使用spi获取AbstractTransactionalMessageCheckListener 的实现类，这就是事务消息检查器找出没有本地事务执行结果的消息后，
+        // 会通知这个监听器，这个监听器来进行响应的处理，这个也是没有，就会创建一个默认的，这个默认的就会发送消息询问消息生产者。
         this.transactionalMessageCheckListener = ServiceProvider.loadClass(ServiceProvider.TRANSACTION_LISTENER_ID, AbstractTransactionalMessageCheckListener.class);
         if (null == this.transactionalMessageCheckListener) {
             // 事务消息检查监听器
@@ -520,7 +525,7 @@ public class BrokerController {
             log.warn("Load default discard message hook service: {}", DefaultTransactionalMessageCheckListener.class.getSimpleName());
         }
         this.transactionalMessageCheckListener.setBrokerController(this);
-        // 事务消息检查服务
+        // 最后就是事务消息检查服务的创建了，它其实就是一个线程。
         this.transactionalMessageCheckService = new TransactionalMessageCheckService(this);
     }
 
