@@ -48,6 +48,7 @@ import org.apache.rocketmq.store.stats.BrokerStatsManager;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class ReplyMessageProcessor extends AbstractSendMessageProcessor implements NettyRequestProcessor {
+
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
 
     public ReplyMessageProcessor(final BrokerController brokerController) {
