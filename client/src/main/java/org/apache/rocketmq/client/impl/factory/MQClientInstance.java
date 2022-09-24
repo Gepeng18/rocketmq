@@ -685,6 +685,7 @@ public class MQClientInstance {
                     } else {
                         // do 最核心的方法，从nameserver中获取topic的路由信息
                         topicRouteData = this.mQClientAPIImpl.getTopicRouteInfoFromNameServer(topic, clientConfig.getMqClientApiTimeout());
+                        // 按说，获取到topicRouteData后，就可以返回了，那后面在干啥啊，其实就是判断topicRouteData是否改变了，如果改变了，更新本地注册表
                     }
                     if (topicRouteData != null) {
                         // 获取老的:old，新的是topicRouteData
@@ -713,6 +714,7 @@ public class MQClientInstance {
                             // 更新producer的topicPublishInfo
                             if (!producerTable.isEmpty()) {
                                 // 将topicRouteData中的写队列信息转化为MessageQueue用来更新producer
+                                // 实际上就是把topicRouteData(nameserver返回的)包装成TopicPublishInfo(producer真正需要的,也就是producer维护的路由表)
                                 TopicPublishInfo publishInfo = topicRouteData2TopicPublishInfo(topic, topicRouteData);
                                 // haveTopicRouterInfo设置成true，就是说明它这个topicPublishInfo 里面存着对应的topicRouteData信息。
                                 publishInfo.setHaveTopicRouterInfo(true);

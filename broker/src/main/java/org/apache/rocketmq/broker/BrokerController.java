@@ -925,6 +925,7 @@ public class BrokerController {
             this.registerBrokerAll(true, false, true);
         }
 
+        // broker每隔30秒执行一次注册，或者说是心跳
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override

@@ -466,7 +466,7 @@ public class ScheduleMessageService extends ConfigManager {
                         continue;
                     }
 
-                    // 将延时消息转化为普通消息（还记得上文`CommitLog.java`中将普通消息转化为了延时消息么）
+                    // ipt 将延时消息转化为普通消息（还记得上文`CommitLog.java`中将普通消息转化为了延时消息么）
                     MessageExtBrokerInner msgInner = ScheduleMessageService.this.messageTimeup(msgExt);
                     if (TopicValidator.RMQ_SYS_TRANS_HALF_TOPIC.equals(msgInner.getTopic())) {
                         log.error("[BUG] the real topic of schedule msg is {}, discard the msg. msg={}",

@@ -161,7 +161,7 @@ public class BrokerOuterAPI {
              * 但是都是使用reactor模型，1个线程负责连接，3个线程负责处理read ，write事件，8个线程负责业务逻辑的处理。
              */
             final CountDownLatch countDownLatch = new CountDownLatch(nameServerAddressList.size());
-            // 多线程 注册
+            // 多线程 注册，每个namesrvAddr开启一个线程进行注册
             for (final String namesrvAddr : nameServerAddressList) {
                 brokerOuterExecutor.execute(new Runnable() {
                     @Override
@@ -203,6 +203,7 @@ public class BrokerOuterAPI {
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.REGISTER_BROKER, requestHeader);
         request.setBody(body);
 
+        // 如果是oneway，则不要求返回值
         if (oneway) {
             try {
                 this.remotingClient.invokeOneway(namesrvAddr, request, timeoutMills);
@@ -212,6 +213,7 @@ public class BrokerOuterAPI {
             return null;
         }
 
+        // 如果是同步方式，则等待返回值
         RemotingCommand response = this.remotingClient.invokeSync(namesrvAddr, request, timeoutMills);
         assert response != null;
         switch (response.getCode()) {

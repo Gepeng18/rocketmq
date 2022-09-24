@@ -54,6 +54,7 @@ public class BrokerStartup {
     public static InternalLogger log;
 
     public static void main(String[] args) {
+        // start(create(args))
         start(createBrokerController(args));
     }
 
@@ -98,13 +99,15 @@ public class BrokerStartup {
                 System.exit(-1);
             }
 
+            // 三个配置类，一个broker，一个nettyServer和nettyClient的config
+            // broker通过nettyServer给producer和consumer提供服务，同时通过nettyClient向broker注册和心跳
             final BrokerConfig brokerConfig = new BrokerConfig();
             final NettyServerConfig nettyServerConfig = new NettyServerConfig();
             final NettyClientConfig nettyClientConfig = new NettyClientConfig();
 
             nettyClientConfig.setUseTLS(Boolean.parseBoolean(System.getProperty(TLS_ENABLE,
                 String.valueOf(TlsSystemConfig.tlsMode == TlsMode.ENFORCING))));
-            nettyServerConfig.setListenPort(10911);
+            nettyServerConfig.setListenPort(10911); // 设置nettyServer的端口号
             final MessageStoreConfig messageStoreConfig = new MessageStoreConfig();
 
             if (BrokerRole.SLAVE == messageStoreConfig.getBrokerRole()) {
@@ -112,7 +115,7 @@ public class BrokerStartup {
                 messageStoreConfig.setAccessMessageInMemoryMaxRatio(ratio);
             }
 
-            if (commandLine.hasOption('c')) {
+            if (commandLine.hasOption('c')) { // -c：解析配置文件，填充配置类
                 String file = commandLine.getOptionValue('c');
                 if (file != null) {
                     configFile = file;
@@ -138,6 +141,7 @@ public class BrokerStartup {
                 System.exit(-2);
             }
 
+            // 从配置文件中拿到namesrv地址，按照;进行分割
             String namesrvAddr = brokerConfig.getNamesrvAddr();
             if (null != namesrvAddr) {
                 try {
@@ -209,6 +213,7 @@ public class BrokerStartup {
             MixAll.printObjectProperties(log, nettyClientConfig);
             MixAll.printObjectProperties(log, messageStoreConfig);
 
+            // do 创建brokerController并初始化
             final BrokerController controller = new BrokerController(
                 brokerConfig,
                 nettyServerConfig,

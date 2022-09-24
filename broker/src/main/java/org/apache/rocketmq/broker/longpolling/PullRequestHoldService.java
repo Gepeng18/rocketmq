@@ -68,6 +68,7 @@ public class PullRequestHoldService extends ServiceThread {
         log.info("{} service started", this.getServiceName());
         while (!this.isStopped()) {
             try {
+                // 如果是长轮询，每隔5秒去检查这个消息；不是长轮询，每隔1秒
                 if (this.brokerController.getBrokerConfig().isLongPollingEnable()) {
                     this.waitForRunning(5 * 1000);
                 } else {
@@ -101,6 +102,7 @@ public class PullRequestHoldService extends ServiceThread {
                 int queueId = Integer.parseInt(kArray[1]);
                 final long offset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, queueId);
                 try {
+                    // 通知
                     this.notifyMessageArriving(topic, queueId, offset);
                 } catch (Throwable e) {
                     log.error("check hold request failed. topic={}, queueId={}", topic, queueId, e);
@@ -128,7 +130,9 @@ public class PullRequestHoldService extends ServiceThread {
                         newestOffset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, queueId);
                     }
 
+                    // 最新的offset如果大于request中的offset，表明有新消息
                     if (newestOffset > request.getPullFromThisOffset()) {
+                        // 新来的消息，consumer是否感兴趣，如果感兴趣，就可以唤醒consumer了
                         boolean match = request.getMessageFilter().isMatchedByConsumeQueue(tagsCode,
                             new ConsumeQueueExt.CqExtUnit(tagsCode, msgStoreTime, filterBitMap));
                         // match by bit map, need eval again when properties is not null.
@@ -138,6 +142,7 @@ public class PullRequestHoldService extends ServiceThread {
 
                         if (match) {
                             try {
+                                // 感兴趣则唤醒
                                 this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),
                                     request.getRequestCommand());
                             } catch (Throwable e) {
@@ -147,6 +152,7 @@ public class PullRequestHoldService extends ServiceThread {
                         }
                     }
 
+                    // 没有找到感兴趣的新消息，并且超时，则也唤醒，返回未找到数据
                     if (System.currentTimeMillis() >= (request.getSuspendTimestamp() + request.getTimeoutMillis())) {
                         try {
                             this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),

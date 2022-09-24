@@ -709,7 +709,7 @@ public class CommitLog {
                 return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.CREATE_MAPEDFILE_FAILED, null));
             }
 
-            // do 往mappedFile中追加消息
+            // do 往mappedFile中追加消息，追加到内存映射文件中
             result = mappedFile.appendMessage(msg, this.appendMessageCallback, putMessageContext);
             // 追加完成后，就判断写入状态
             switch (result.getStatus()) {

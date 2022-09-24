@@ -459,6 +459,7 @@ public class DefaultMessageStore implements MessageStore {
         return false;
     }
 
+    // 这里实际上是把消息追加到内存后，后面由线程刷到文件中
     @Override
     public CompletableFuture<PutMessageResult> asyncPutMessage(MessageExtBrokerInner msg) {
         // 1、前半部分都是一些校验性的东西，判断broker的角色，判断服务状态，判断topic长度，判断propreties长度，判断os pageCache是否繁忙
@@ -2276,6 +2277,7 @@ public class DefaultMessageStore implements MessageStore {
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);
 
                                     // master角色的broker 还需要通知一下messageArrivingListener
+                                    // 这里就是实现，长轮询时，当消息写入后，直接唤醒consumer
                                     if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
                                             && DefaultMessageStore.this.brokerConfig.isLongPollingEnable()
                                             && DefaultMessageStore.this.messageArrivingListener != null) {

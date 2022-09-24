@@ -432,6 +432,7 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
             }
 
             final Object objLock = messageQueueLock.fetchLockObject(this.messageQueue);
+            // 和普通的消息消费的最大区别，就是这里加了个锁
             synchronized (objLock) {
                 if (MessageModel.BROADCASTING.equals(ConsumeMessageOrderlyService.this.defaultMQPushConsumerImpl.messageModel())
                     || (this.processQueue.isLocked() && !this.processQueue.isLockExpired())) {

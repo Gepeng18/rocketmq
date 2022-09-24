@@ -509,9 +509,11 @@ public class RouteInfoManager {
             Entry<String, BrokerLiveInfo> next = it.next();
             long last = next.getValue().getLastUpdateTimestamp();
             if ((last + BROKER_CHANNEL_EXPIRED_TIME) < System.currentTimeMillis()) {
+                // 关闭长连接
                 RemotingUtil.closeChannel(next.getValue().getChannel());
                 it.remove();
                 log.warn("The broker channel expired, {} {}ms", next.getKey(), BROKER_CHANNEL_EXPIRED_TIME);
+                // 维护nameserv侧的注册表
                 this.onChannelDestroy(next.getKey(), next.getValue().getChannel());
             }
         }
