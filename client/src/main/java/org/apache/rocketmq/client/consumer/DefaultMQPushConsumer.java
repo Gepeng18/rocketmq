@@ -338,6 +338,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
         this.consumerGroup = consumerGroup;  // 消费组
         this.namespace = namespace;
         this.allocateMessageQueueStrategy = allocateMessageQueueStrategy; // 分配策略
+        // ipt 构造了一个 defaultMQPushConsumerImpl
         defaultMQPushConsumerImpl = new DefaultMQPushConsumerImpl(this, rpcHook);
     }
 

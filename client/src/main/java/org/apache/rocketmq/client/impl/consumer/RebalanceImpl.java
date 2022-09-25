@@ -304,6 +304,8 @@ public abstract class RebalanceImpl {
                     List<MessageQueue> allocateResult = null;
                     try {
                         // ipt 3、使用策略进行分配，默认是按照平均的方式（这里建议直接去看原博客）
+                        // consumerGroup参数就是打日志的，没啥用。 第二个参数是当前clientId，主要是用来判断 cidAll中是否包含本clientId，
+                        // 如果不包含，则表明broker根本不知道本client的存在，就不干活，否则，就返回本clientId被分配到哪些MessageQueue
                         allocateResult = strategy.allocate(
                             this.consumerGroup,
                             this.mQClientFactory.getClientId(),
@@ -354,6 +356,13 @@ public abstract class RebalanceImpl {
         }
     }
 
+    /**
+     *
+     * @param topic
+     * @param mqSet 本client被分配到的 mq
+     * @param isOrder
+     * @return
+     */
     private boolean updateProcessQueueTableInRebalance(final String topic, final Set<MessageQueue> mqSet,
         final boolean isOrder) {
         boolean changed = false;
@@ -370,8 +379,9 @@ public abstract class RebalanceImpl {
             MessageQueue mq = next.getKey();
             ProcessQueue pq = next.getValue();
 
+            // 只有topic相同，才需要进行操作
             if (mq.getTopic().equals(topic)) {
-                // 如果mq不包含在之前的了
+                // 如果本次分配到的mq不包含之前的已经存在的mq，表明之前的mq没啥用了
                 if (!mqSet.contains(mq)) {
                     // 销毁
                     pq.setDropped(true);
@@ -382,13 +392,13 @@ public abstract class RebalanceImpl {
                         log.info("doRebalance, {}, remove unnecessary mq, {}", consumerGroup, mq);
                     }
                 } else if (pq.isPullExpired()) {
-                    // 判断 距离上次拉取消息的时间是否超了120s
+                    // 判断某个之前的pq距离上次拉取消息的时间是否超了120s
                     switch (this.consumeType()) {
                         case CONSUME_ACTIVELY:
                             // 其实就是pull消息类型
                             break;
                         case CONSUME_PASSIVELY:
-                            // 被动消费，就是pull模式
+                            // 被动消费，就是push模式
                             // 试图关闭
                             pq.setDropped(true);
                             if (this.removeUnnecessaryMessageQueue(mq, pq)) {
@@ -414,7 +424,7 @@ public abstract class RebalanceImpl {
          * 也是从broker先获取最后消费offset，如果没有话，就去broker上找你这个时间的一个offset。
          * 接着就是组装ProcessQueue塞到map中了，组装PullRequest，放到list中，分发出去，分发这动作由子类完成。如果有改变就返回true，没有变动就返回false
          */
-        // 新增
+        // 新增，注意这里的mq就是需要新增的mq
         List<PullRequest> pullRequestList = new ArrayList<PullRequest>();
         for (MessageQueue mq : mqSet) {
             // 如果mq之前不存在
@@ -444,7 +454,7 @@ public abstract class RebalanceImpl {
                     if (pre != null) {
                         log.info("doRebalance, {}, mq already exists, {}", consumerGroup, mq);
                     } else {
-                        // 封装pullRequest
+                        // 现在已经生成一个pq并存储到table中了，那下面就开始准备把数据扔到pq中了。封装pullRequest
                         log.info("doRebalance, {}, add a new mq, {}", consumerGroup, mq);
                         PullRequest pullRequest = new PullRequest();
                         pullRequest.setConsumerGroup(consumerGroup);
@@ -460,8 +470,8 @@ public abstract class RebalanceImpl {
             }
         }
 
+        // ipt 这是一个非常重要的方法，就是将那些新增的pq中填充数据
         // 派发去请求(循环找DefaultMQPushConsumer 的立即执行PullRequest方法)
-        // 这是一个非常重要的方法
         this.dispatchPullRequest(pullRequestList);
 
         return changed;

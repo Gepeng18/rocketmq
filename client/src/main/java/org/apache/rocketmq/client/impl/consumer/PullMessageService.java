@@ -82,7 +82,7 @@ public class PullMessageService extends ServiceThread {
     }
 
     private void pullMessage(final PullRequest pullRequest) {
-        // 根据消费者组获取这个consumer的具体实现impl（DefaultMQPushConsumerImpl）
+        // 根据groupName从consumerTable中获取这个consumer的具体实现impl（DefaultMQPushConsumerImpl）
         final MQConsumerInner consumer = this.mQClientFactory.selectConsumer(pullRequest.getConsumerGroup());
         if (consumer != null) {
             DefaultMQPushConsumerImpl impl = (DefaultMQPushConsumerImpl) consumer;
@@ -93,6 +93,10 @@ public class PullMessageService extends ServiceThread {
         }
     }
 
+    /**
+     * 死循环从pullRequestQueue中取出pullRequest，然后根据pullRequest中的groupName从MQClientInstance的consumerTable中找出MQConsumerInner，然后调用pullMessage
+     * 由此可见，为什么每个consumer启动后都要向MQClientInstance中注册，因为很多时候都需要从consumerTable中根据groupName找到consumerInner
+     */
     @Override
     public void run() {
         log.info(this.getServiceName() + " service started");

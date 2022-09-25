@@ -211,8 +211,12 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     }
 
     /**
-     * 直接看438 this.pullAPIWrapper.pullKernelImpl 方法
-     * @param pullRequest
+     * 1、调用 pullAPIWrapper.pullKernelImpl 从broker中异步拉取消息
+     * 2、消息拉取到后，执行 PullCallback 的回调
+     *  2.1 回调函数的执行逻辑为：如果没有拉取到消息，就将 PullRequest 继续扔到 pullRequestQueue 中，然后被线程死循环拿出来，然后继续调用本方法
+     *  2.2 如果拉取到了消息，先把消息存储到processQueue中
+     *  2.3 然后将processQueue提交给consumeMessageService进行消费
+     *  2.4 然后再根据情况，把pullRequest扔到pullRequestQueue 中，这里的情况如，是否等待一会再扔到队列中。。。
      */
     public void pullMessage(final PullRequest pullRequest) {
         final ProcessQueue processQueue = pullRequest.getProcessQueue();
@@ -323,20 +327,21 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                     /**
                      * 如果是有消息返回的话，设置一下pullRequest中下次开始拉取消息的offset，这个offset 是broker 给带回来的，
                      * 然后判断消息列表是不是空，如果是空的话，就将这个pullRequest接着扔到PullMessageService服务的那个队列中，
-                     * 继续下一次拉取，如果有消息的话，就会将消息放入ProcessQueue的一个treeMap中
+                     * 继续下一次拉取，如果有消息的话，就会将消息放入ProcessQueue的一个treeMap中，然后将treeMap传入consumeMessageService
+                     * 进行消费，然后继续拉取
                      */
                     switch (pullResult.getPullStatus()) {
                         case FOUND:
-                            // 获取这次拉取消息是从哪个offset拉取的
+                            // 获取这次拉到的消息是从哪个offset拉取的（目的就是打日志，没啥用）
                             long prevRequestOffset = pullRequest.getNextOffset();
-                            // ipt 获取下次开始的offset
+                            // ipt 获取下次开始的offset，是从pullResult中获取的，设置到pullRequest中作为下次拉取的时间点
                             pullRequest.setNextOffset(pullResult.getNextBeginOffset());
                             // 记录RT
                             long pullRT = System.currentTimeMillis() - beginTimestamp;
                             DefaultMQPushConsumerImpl.this.getConsumerStatsManager().incPullRT(pullRequest.getConsumerGroup(),
                                 pullRequest.getMessageQueue().getTopic(), pullRT);
 
-                            // 第一个消息的offset
+                            // 第一个消息的offset（也是为了打印日志，没啥用）
                             long firstMsgOffset = Long.MAX_VALUE;
                             // ipt 如果没有消息的话，就立即执行下一批pullrequest
                             if (pullResult.getMsgFoundList() == null || pullResult.getMsgFoundList().isEmpty()) {
@@ -362,7 +367,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                                 // 接着就是向ConsumeMessageService这个服务提交消费请求，进行具体的消费，
                                 boolean dispatchToConsume = processQueue.putMessage(pullResult.getMsgFoundList());
                                 // ipt 提交进行消息消费
-                                // 第一个参数就是 从broker拉取的消息集合，然后第二个参数是ProcessQueue，第三个是对应的MessageQueue，第四个是要不要去消费
+                                // 第一个参数就是 从broker拉取的消息集合，然后第二个参数是ProcessQueue，第三个是对应的MessageQueue，第四个是是否允许去消费
                                 DefaultMQPushConsumerImpl.this.consumeMessageService.submitConsumeRequest(
                                     pullResult.getMsgFoundList(),
                                     processQueue,
@@ -373,11 +378,11 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                                 // 判断拉取间隔，如果没有的话就将这个PullRequest放到PullMessageService
                                 // 这个服务的队列中，如果有间隔的话，就等会再放进去，这里默认是没有间隔的。
                                 if (DefaultMQPushConsumerImpl.this.defaultMQPushConsumer.getPullInterval() > 0) {
-                                    // 如果有拉取间隔的话，就稍后吧pullrequest再扔进队列中
+                                    // 如果有拉取间隔的话，就等一个间隔，然后把pullrequest再扔进队列中
                                     DefaultMQPushConsumerImpl.this.executePullRequestLater(pullRequest,
                                         DefaultMQPushConsumerImpl.this.defaultMQPushConsumer.getPullInterval());
                                 } else {
-                                    // 立即拉取
+                                    // 如果没有拉取时间间隔，就立即拉取
                                     DefaultMQPushConsumerImpl.this.executePullRequestImmediately(pullRequest);
                                 }
                             }
@@ -717,7 +722,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 // 启动
                 this.consumeMessageService.start();
 
-                // 注册consumer
+                // 注册consumer，其实就是放到 MQClientInstance中的consumerTable中
                 boolean registerOK = mQClientFactory.registerConsumer(this.defaultMQPushConsumer.getConsumerGroup(), this);
                 // 没有注册成果，就抛异常了
                 if (!registerOK) {
@@ -728,7 +733,8 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                         null);
                 }
 
-                // ipt 这里有个很重要的东西，就是mQClientInstance启动的时候，会启动一个拉取消息的服务，pullService.start()
+                // ipt 这里有个很重要的东西，就是mQClientInstance启动的时候，会启动一个拉取消息的服务，pullMessageService.start()，
+                //  这时候会有个线程死循环从pullRequestQueue中取出pullRequest，从而从broker拉取数据
                 // 客户端启动
                 mQClientFactory.start();
                 log.info("the consumer [{}] start OK.", this.defaultMQPushConsumer.getConsumerGroup());
@@ -751,7 +757,11 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         this.mQClientFactory.checkClientInBroker();
         // 发送心跳到所有broker (不光光是发送心跳这么简单，里面带了一堆东西)
         this.mQClientFactory.sendHeartbeatToAllBrokerWithLock();
-        // 立即执行rebalance
+        // ipt 立即执行rebalance
+        // 这个方法非常重要，-> 唤醒RebalanceService -> 执行 MQClientInstance下所有consumer的 doRebalance
+        // -> rebalanceImpl.doRebalance -> rebalanceByTopic(所有topic) -> updateProcessQueueTableInRebalance 创建新的pq
+        // -> 调用dispatchPullRequest为新的pq添加数据，其实就是将pullRequest放到queue中，由一个线程死循环取出来，调用pullMessage方法，
+        // 其实就是本类中的pullMessage方法，而本类中的pullMessage方法就是不断拉取消息（通过异步回调实现不断拉取）
         this.mQClientFactory.rebalanceImmediately();
     }
 
@@ -941,6 +951,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
     private void copySubscription() throws MQClientException {
         try {
+            // ipt 将 defaultMQPushConsumer 中订阅的topic复制到 rebalanceImpl 中
             Map<String, String> sub = this.defaultMQPushConsumer.getSubscription();
             if (sub != null) {
                 for (final Map.Entry<String, String> entry : sub.entrySet()) {
@@ -960,7 +971,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                     // 广播模式
                     break;
                 case CLUSTERING:
-                    // 集群模式，这里会订阅重试topic
+                    // ipt 集群模式，这里会订阅重试topic
                     final String retryTopic = MixAll.getRetryTopic(this.defaultMQPushConsumer.getConsumerGroup());
                     // 生成对应topic的重试topic
                     SubscriptionData subscriptionData = FilterAPI.buildSubscriptionData(retryTopic, SubscriptionData.SUB_ALL);
@@ -980,15 +991,18 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
     private void updateTopicSubscribeInfoWhenSubscriptionChanged() {
         // 消息消费者是将namesrv返回的结果封装成了sub类型的实体，而消息生产者生成的是pub类型的实体
+        // 1、从 rebalanceImpl 中取出所有订阅的topic和重试topic
         Map<String, SubscriptionData> subTable = this.getSubscriptionInner();
         if (subTable != null) {
             for (final Map.Entry<String, SubscriptionData> entry : subTable.entrySet()) {
                 final String topic = entry.getKey();
+                // 2、调用 MQClientInstance 更新topic的路由信息
                 this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic);
             }
         }
     }
 
+    // 从 rebalanceImpl 中取出所有订阅的topic和重试topic
     public ConcurrentMap<String, SubscriptionData> getSubscriptionInner() {
         return this.rebalanceImpl.getSubscriptionInner();
     }
@@ -1268,6 +1282,10 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         return queueTimeSpan;
     }
 
+    /**
+     * 如果msg的RETRY_TOPIC属性和consumerGroup中的topic是一样的，则表明msg是重试msg，将topic进行还原
+     *     由此可得出两个结论： 1. 重试msg的topic不是原topic 2. 重试msg的topic的原名字在属性中
+     */
     public void resetRetryAndNamespace(final List<MessageExt> msgs, String consumerGroup) {
         final String groupTopic = MixAll.getRetryTopic(consumerGroup);
         for (MessageExt msg : msgs) {

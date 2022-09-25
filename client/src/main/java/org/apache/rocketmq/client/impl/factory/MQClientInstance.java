@@ -146,8 +146,10 @@ public class MQClientInstance {
 
         this.mQAdminImpl = new MQAdminImpl(this);
 
+        // 死循环从pullRequestQueue中取出pullRequest，
         this.pullMessageService = new PullMessageService(this);
 
+        // 每隔20秒进行一次rebalance
         this.rebalanceService = new RebalanceService(this);
 
         // client 内部的producer ,它的组是 CLIENT_INNER_PRODUCER
@@ -513,11 +515,12 @@ public class MQClientInstance {
     }
 
     public void sendHeartbeatToAllBrokerWithLock() {
-        // 心跳锁
+        // 心跳锁（每个consumer一个心跳锁）
         if (this.lockHeartbeat.tryLock()) {
             try {
-                // 发送心跳到所有的broker上面
+                // 发送心跳到所有master的broker上面
                 this.sendHeartbeatToAllBroker();
+                // 和过滤服务有关，暂时不管
                 this.uploadFilterClassSource();
             } catch (final Exception e) {
                 log.error("sendHeartbeatToAllBroker exception", e);
@@ -577,8 +580,12 @@ public class MQClientInstance {
         return false;
     }
 
-    // ipt 只向master发送心跳
-    // 四件事，先是组装心跳信息，接着是遍历broker 地址表，找到master节点的broker 发送心跳，返回一个version信息，最后是更新broker 版本表中的对应的版本
+    /**
+     * 给所有master的broker发送心跳，并更新 brokerVersionTable
+     * 1、组装心跳信息
+     * 2、遍历broker 地址表，找到master节点的broker 发送心跳，返回一个version信息
+     * 3、更新broker 版本表中的对应的版本
+     */
     private void sendHeartbeatToAllBroker() {
         // ipt 1、准备心跳数据
         final HeartbeatData heartbeatData = this.prepareHeartbeatData();
@@ -609,6 +616,7 @@ public class MQClientInstance {
                                     continue;
                             }
 
+                            // 到这里，就是给所有brokerName的所有brokerAddr发送心跳
                             try {
                                 // ipt 3、发送心跳，获取一个version
                                 int version = this.mQClientAPIImpl.sendHearbeat(addr, heartbeatData, clientConfig.getMqClientApiTimeout());
@@ -1047,7 +1055,7 @@ public class MQClientInstance {
             MQConsumerInner impl = entry.getValue();
             if (impl != null) {
                 try {
-                    // 调用每个消费对象的doRebalance，一个MQClient是可以对应多个DefaultMQPushConsumer
+                    // 调用每个消费对象的doRebalance，一个MQClient是可以对应多个 DefaultMQPushConsumerImpl
                     impl.doRebalance();
                 } catch (Throwable e) {
                     log.error("doRebalance exception", e);

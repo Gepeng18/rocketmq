@@ -132,9 +132,10 @@ public class ProcessQueue {
 
     /**
      * 首先是获取写锁，然后遍历消息列表，将消息放到这个treeMap中，key就是消息的offset ，value就是那个消息，
-     * 然后就会按照消息offset从小到大排列起来了，如果这个treeMap不是空的话，并且没有在消费状态，就要将它的消费状态设置成running，然后允许分发去消费。
+     * 然后就会按照消息offset从小到大排列起来了，如果这个treeMap不是空的话，并且没有在消费状态，就要将它的消费状态设置成true，然后允许分发去消费。
      */
     public boolean putMessage(final List<MessageExt> msgs) {
+        // 必须满足两个条件：1. msgs中有数据 2. 本pq不在消费，所以如果在消费，这返回false，此时可以向里面put数据，不能消费数据
         boolean dispatchToConsume = false;
         try {
             // 获取读写锁
