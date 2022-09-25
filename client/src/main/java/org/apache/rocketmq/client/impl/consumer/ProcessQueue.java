@@ -135,7 +135,7 @@ public class ProcessQueue {
      * 然后就会按照消息offset从小到大排列起来了，如果这个treeMap不是空的话，并且没有在消费状态，就要将它的消费状态设置成true，然后允许分发去消费。
      */
     public boolean putMessage(final List<MessageExt> msgs) {
-        // 必须满足两个条件：1. msgs中有数据 2. 本pq不在消费，所以如果在消费，这返回false，此时可以向里面put数据，不能消费数据
+        // 必须满足两个条件：1. msgs中有数据 2. 本pq不在消费，所以如果在消费，则返回false，此时可以向里面put数据，不能消费数据
         boolean dispatchToConsume = false;
         try {
             // 获取读写锁

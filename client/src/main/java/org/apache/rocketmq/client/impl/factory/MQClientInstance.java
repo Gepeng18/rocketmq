@@ -276,7 +276,9 @@ public class MQClientInstance {
                     // ipt 开启任务调度 启动一堆定时任务，包括获取nameServ，从nameServ获取topic，清理下线broker
                     this.startScheduledTask();
                     // Start pull service
-                    // ipt 启动拉消息服务，这个服务主要是处理拉取消息请求的，这里的启动就是启动线程
+                    // ipt pullMessageService 和 rebalanceService 是协同工作的，pullMessageService是从pullRequestQueue中take出消息然后真正从broker拉数据
+                    //  而 rebalanceService 是定时执行doRebalacne()，往 pullRequestQueue 中放一个 pullRequest，两个同时作用得以拉数据
+                    //  启动拉消息服务，这个服务主要是处理拉取消息请求的，这里的启动就是启动线程
                     this.pullMessageService.start();
                     // Start rebalance service
                     // ipt 启动rebalance服务，这里也是启动一个线程，它主要是做queue的负载的
