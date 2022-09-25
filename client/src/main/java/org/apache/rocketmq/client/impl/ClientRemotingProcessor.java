@@ -116,12 +116,12 @@ public class ClientRemotingProcessor extends AsyncNettyRequestProcessor implemen
             // group组
             final String group = messageExt.getProperty(MessageConst.PROPERTY_PRODUCER_GROUP);
             if (group != null) {
-                // do 选择一个group对应的producer
+                // ipt 选择一个group对应的producer
                 MQProducerInner producer = this.mqClientFactory.selectProducer(group);
                 if (producer != null) {
                     // 解析远程地址
                     final String addr = RemotingHelper.parseChannelRemoteAddr(ctx.channel());
-                    // do 检查本地消息执行结果
+                    // ipt 检查本地消息执行结果
                     producer.checkTransactionState(addr, messageExt, requestHeader);
                 } else {
                     log.debug("checkTransactionState, pick producer by group[{}] failed", group);

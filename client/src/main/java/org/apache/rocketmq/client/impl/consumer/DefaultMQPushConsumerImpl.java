@@ -329,7 +329,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                         case FOUND:
                             // 获取这次拉取消息是从哪个offset拉取的
                             long prevRequestOffset = pullRequest.getNextOffset();
-                            // do 获取下次开始的offset
+                            // ipt 获取下次开始的offset
                             pullRequest.setNextOffset(pullResult.getNextBeginOffset());
                             // 记录RT
                             long pullRT = System.currentTimeMillis() - beginTimestamp;
@@ -338,7 +338,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
                             // 第一个消息的offset
                             long firstMsgOffset = Long.MAX_VALUE;
-                            // do 如果没有消息的话，就立即执行下一批pullrequest
+                            // ipt 如果没有消息的话，就立即执行下一批pullrequest
                             if (pullResult.getMsgFoundList() == null || pullResult.getMsgFoundList().isEmpty()) {
                                 DefaultMQPushConsumerImpl.this.executePullRequestImmediately(pullRequest);
                             } else {
@@ -357,11 +357,11 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                                  * 并将拉取请求PullRequest 再次放到PullMessageService这个服务的那个队列中，
                                  * 就是这么一个拉取过程。
                                  */
-                                // do 将消息放到这个processQueue中进行消费
+                                // ipt 将消息放到这个processQueue中进行消费
                                 // 将消息列表放入ProcessQueue中之后，会返回一个是否分发消费的判断值，
                                 // 接着就是向ConsumeMessageService这个服务提交消费请求，进行具体的消费，
                                 boolean dispatchToConsume = processQueue.putMessage(pullResult.getMsgFoundList());
-                                // do 提交进行消息消费
+                                // ipt 提交进行消息消费
                                 // 第一个参数就是 从broker拉取的消息集合，然后第二个参数是ProcessQueue，第三个是对应的MessageQueue，第四个是要不要去消费
                                 DefaultMQPushConsumerImpl.this.consumeMessageService.submitConsumeRequest(
                                     pullResult.getMsgFoundList(),
@@ -475,7 +475,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             subExpression != null, // subscription
             classFilter // class filter
         );
-        // do 最重要的部分，拉取消息(向broker发起拉取消息的请求)
+        // ipt 最重要的部分，拉取消息(向broker发起拉取消息的请求)
         // 有个pullCallback，我们要注意下，这个是broker响应回来消息的时候，会回调这个对象
         try {
             this.pullAPIWrapper.pullKernelImpl(
@@ -656,7 +656,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                     this.defaultMQPushConsumer.changeInstanceNameToPID();
                 }
 
-                // do 最重要的一步，创建instance
+                // ipt 最重要的一步，创建instance
                 this.mQClientFactory = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQPushConsumer, this.rpcHook);
 
                 // 下面几行就是往rebalanceImpl中设置一些配置，需要注意的是rebalanceImpl这个是在消息消费者中很重要的一个组件
@@ -677,7 +677,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 // 注册过滤消息的钩子
                 this.pullAPIWrapper.registerFilterMessageHook(filterMessageHookList);
 
-                // do 从名字上看，主要负责存储offSet
+                // ipt 从名字上看，主要负责存储offSet
                 // 这个就是创建offsetStore，如果你是广播的话，就使用本地文件来存储消费offset，如果你是集群消息模式的话，
                 // 就使用远程broker offset存储的，说白了就是我消费完一个消息之后，找这个组件，告诉它我这个offset 消费完了，
                 // 这个组件就会隔一段时间告诉下broker消费进度。
@@ -728,7 +728,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                         null);
                 }
 
-                // do 这里有个很重要的东西，就是mQClientInstance启动的时候，会启动一个拉取消息的服务，pullService.start()
+                // ipt 这里有个很重要的东西，就是mQClientInstance启动的时候，会启动一个拉取消息的服务，pullService.start()
                 // 客户端启动
                 mQClientFactory.start();
                 log.info("the consumer [{}] start OK.", this.defaultMQPushConsumer.getConsumerGroup());

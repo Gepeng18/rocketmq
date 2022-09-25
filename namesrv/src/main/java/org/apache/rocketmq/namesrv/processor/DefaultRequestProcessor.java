@@ -105,7 +105,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
                 // 注销broker
                 return this.unregisterBroker(ctx, request);
             case RequestCode.GET_ROUTEINFO_BY_TOPIC:
-                // do 根据topic获取路由信息
+                // ipt 根据topic获取路由信息
                 return this.getRouteInfoByTopic(ctx, request);
             case RequestCode.GET_BROKER_CLUSTER_INFO:
                 // 获取broker集群信息
@@ -234,7 +234,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
             registerBrokerBody.getTopicConfigSerializeWrapper().getDataVersion().setTimestamp(0);
         }
 
-        // do 进行注册
+        // ipt 进行注册
         RegisterBrokerResult result = this.namesrvController.getRouteInfoManager().registerBroker(
             requestHeader.getClusterName(),
             requestHeader.getBrokerAddr(),

@@ -169,7 +169,7 @@ public class BrokerOuterAPI {
                         try {
                             RegisterBrokerResult result = registerBroker(namesrvAddr, oneway, timeoutMills, requestHeader, body);
                             if (result != null) {
-                                // do 放入集合中, PS: 总感觉有并发问题
+                                // ipt 放入集合中, PS: 总感觉有并发问题
                                 registerBrokerResultList.add(result);
                             }
 

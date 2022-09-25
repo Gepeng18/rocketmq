@@ -331,7 +331,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             // 事务消息走这里
             putMessageResult = this.brokerController.getTransactionalMessageService().asyncPrepareMessage(msgInner);
         } else {
-            // do 普通消息走这里(找到存储器DefaultMessageStore，然后调用存储器的putMessage方法进行存储)
+            // ipt 普通消息走这里(找到存储器DefaultMessageStore，然后调用存储器的putMessage方法进行存储)
             putMessageResult = this.brokerController.getMessageStore().asyncPutMessage(msgInner);
         }
         return handlePutMessageResultFuture(putMessageResult, response, request, msgInner, responseHeader, mqtraceContext, ctx, queueIdInt);

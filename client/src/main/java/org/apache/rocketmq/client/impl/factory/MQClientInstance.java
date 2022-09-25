@@ -268,19 +268,19 @@ public class MQClientInstance {
                     if (null == this.clientConfig.getNamesrvAddr()) {
                         this.mQClientAPIImpl.fetchNameServerAddr();
                     }
-                    // do Start request-response channel 这行其实是启动netty客户端的
+                    // ipt Start request-response channel 这行其实是启动netty客户端的
                     this.mQClientAPIImpl.start();
                     // Start various schedule tasks
-                    // do 开启任务调度 启动一堆定时任务，包括获取nameServ，从nameServ获取topic，清理下线broker
+                    // ipt 开启任务调度 启动一堆定时任务，包括获取nameServ，从nameServ获取topic，清理下线broker
                     this.startScheduledTask();
                     // Start pull service
-                    // do 启动拉消息服务，这个服务主要是处理拉取消息请求的，这里的启动就是启动线程
+                    // ipt 启动拉消息服务，这个服务主要是处理拉取消息请求的，这里的启动就是启动线程
                     this.pullMessageService.start();
                     // Start rebalance service
-                    // do 启动rebalance服务，这里也是启动一个线程，它主要是做queue的负载的
+                    // ipt 启动rebalance服务，这里也是启动一个线程，它主要是做queue的负载的
                     this.rebalanceService.start();
                     // Start push service
-                    // do 启动内置消息发送者，它主要是发送一些系统消息的
+                    // ipt 启动内置消息发送者，它主要是发送一些系统消息的
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
@@ -577,10 +577,10 @@ public class MQClientInstance {
         return false;
     }
 
-    // do 只向master发送心跳
+    // ipt 只向master发送心跳
     // 四件事，先是组装心跳信息，接着是遍历broker 地址表，找到master节点的broker 发送心跳，返回一个version信息，最后是更新broker 版本表中的对应的版本
     private void sendHeartbeatToAllBroker() {
-        // do 1、准备心跳数据
+        // ipt 1、准备心跳数据
         final HeartbeatData heartbeatData = this.prepareHeartbeatData();
         final boolean producerEmpty = heartbeatData.getProducerDataSet().isEmpty();
         final boolean consumerEmpty = heartbeatData.getConsumerDataSet().isEmpty();
@@ -592,7 +592,7 @@ public class MQClientInstance {
         if (!this.brokerAddrTable.isEmpty()) {
             // 自增次数
             long times = this.sendHeartbeatTimesTotal.getAndIncrement();
-            // do 2、遍历broker 地址信息表，然后找出master broker,交给api组件进行发送
+            // ipt 2、遍历broker 地址信息表，然后找出master broker,交给api组件进行发送
             Iterator<Entry<String, HashMap<Long, String>>> it = this.brokerAddrTable.entrySet().iterator();
             while (it.hasNext()) {
                 Entry<String, HashMap<Long, String>> entry = it.next();
@@ -610,12 +610,12 @@ public class MQClientInstance {
                             }
 
                             try {
-                                // do 3、发送心跳，获取一个version
+                                // ipt 3、发送心跳，获取一个version
                                 int version = this.mQClientAPIImpl.sendHearbeat(addr, heartbeatData, clientConfig.getMqClientApiTimeout());
                                 if (!this.brokerVersionTable.containsKey(brokerName)) {
                                     this.brokerVersionTable.put(brokerName, new HashMap<String, Integer>(4));
                                 }
-                                // do 4、更新broker 版本表中的对应的版本： 地址 -> version
+                                // ipt 4、更新broker 版本表中的对应的版本： 地址 -> version
                                 this.brokerVersionTable.get(brokerName).put(addr, version);
                                 if (times % 20 == 0) {
                                     log.info("send heart beat to broker[{} {} {}] success", brokerName, id, addr);
@@ -683,7 +683,7 @@ public class MQClientInstance {
                             }
                         }
                     } else {
-                        // do 最核心的方法，从nameserver中获取topic的路由信息
+                        // ipt 最核心的方法，从nameserver中获取topic的路由信息
                         topicRouteData = this.mQClientAPIImpl.getTopicRouteInfoFromNameServer(topic, clientConfig.getMqClientApiTimeout());
                         // 按说，获取到topicRouteData后，就可以返回了，那后面在干啥啊，其实就是判断topicRouteData是否改变了，如果改变了，更新本地注册表
                     }
@@ -704,7 +704,7 @@ public class MQClientInstance {
                         if (changed) {
                             TopicRouteData cloneTopicRouteData = topicRouteData.cloneTopicRouteData();
 
-                            // do 遍历一下路由信息里面的brokerData 集合，然后更新下本地的broker地址信息表
+                            // ipt 遍历一下路由信息里面的brokerData 集合，然后更新下本地的broker地址信息表
                             for (BrokerData bd : topicRouteData.getBrokerDatas()) {
                                 // 这map里面然后就是缓存着broker name -> broker地址的集合
                                 this.brokerAddrTable.put(bd.getBrokerName(), bd.getBrokerAddrs());

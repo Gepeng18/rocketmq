@@ -395,7 +395,7 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
         throws InterruptedException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException {
         // 开始时间
         long beginStartTime = System.currentTimeMillis();
-        // do 根据broker addr 获取channel，如果不存在就创建这个连接
+        // ipt 根据broker addr 获取channel，如果不存在就创建这个连接
         final Channel channel = this.getAndCreateChannel(addr);
         if (channel != null && channel.isActive()) {
             try {
@@ -407,7 +407,7 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
                     // 判断是否超时，之前有获取连接的操作，可能会出现超时的情况
                     throw new RemotingTimeoutException("invokeSync call the addr[" + addr + "] timeout");
                 }
-                // do 同步执行，获取响应
+                // ipt 同步执行，获取响应
                 RemotingCommand response = this.invokeSyncImpl(channel, request, timeoutMillis - costTime);
 
                 // 执行rpc hook 钩子

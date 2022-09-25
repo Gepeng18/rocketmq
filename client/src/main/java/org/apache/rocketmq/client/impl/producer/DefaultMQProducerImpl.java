@@ -404,7 +404,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 doExecuteEndTransactionHook(msg, uniqueKey, brokerAddr, localTransactionState, true);
 
                 try {
-                    // do 发送
+                    // ipt 发送
                     DefaultMQProducerImpl.this.mQClientFactory.getMQClientAPIImpl().endTransactionOneway(brokerAddr, thisHeader, remark,
                         3000);
                 } catch (Exception e) {
@@ -598,10 +598,10 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             int times = 0;
             // 存放发送过的broker name
             String[] brokersSent = new String[timesTotal];
-            // do 重试发送，不仅rocketMQ，dubbo的失败重试也是用for实现的
+            // ipt 重试发送，不仅rocketMQ，dubbo的失败重试也是用for实现的
             for (; times < timesTotal; times++) {
                 String lastBrokerName = null == mq ? null : mq.getBrokerName();
-                // do 选择 message queue (负载均衡)
+                // ipt 选择 message queue (负载均衡)
                 // topicPublishInfo 里面其实就是那一堆MessageQueue， 然后这个lastBrokerName 是上次我们选择的那个broker name
                 MessageQueue mqSelected = this.selectOneMessageQueue(topicPublishInfo, lastBrokerName);
                 if (mqSelected != null) {
@@ -621,7 +621,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                             break;
                         }
 
-                        // do 调用sendKernelImpl进行发送
+                        // ipt 调用sendKernelImpl进行发送
                         sendResult = this.sendKernelImpl(msg, mq, communicationMode, sendCallback, topicPublishInfo, timeout - costTime);
                         endTimestamp = System.currentTimeMillis();
                         // 收集延迟
@@ -1228,10 +1228,10 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 throw new RemotingTooMuchRequestException("sendSelectImpl call timeout");
             }
             if (mq != null) {
-                // do 发送，并且是发送到选中的mq
+                // ipt 发送，并且是发送到选中的mq
                 return this.sendKernelImpl(msg, mq, communicationMode, sendCallback, null, timeout - costTime);
             } else {
-                // do 注意，这里没有发送重试
+                // ipt 注意，这里没有发送重试
                 throw new MQClientException("select message queue return null.", null);
             }
         }
@@ -1356,7 +1356,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                         localTransactionState = localTransactionExecuter.executeLocalTransactionBranch(msg, arg);
                     } else if (transactionListener != null) {
                         log.debug("Used new transaction API");
-                        // do 执行本地事务
+                        // ipt 执行本地事务
                         localTransactionState = transactionListener.executeLocalTransaction(msg, arg);
                     }
                     if (null == localTransactionState) {
@@ -1459,7 +1459,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         requestHeader.setMsgId(sendResult.getMsgId());
         // 将本地的一个异常 转成str 这个东西算是一个记录吧
         String remark = localException != null ? ("executeLocalTransactionBranch exception: " + localException.toString()) : null;
-        // do oneway
+        // ipt oneway
         this.mQClientFactory.getMQClientAPIImpl().endTransactionOneway(brokerAddr, requestHeader, remark,
             this.defaultMQProducer.getSendMsgTimeout());
     }

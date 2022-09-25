@@ -87,12 +87,12 @@ public class Producer {
                  *  producer.send(msg, new SendCallback() {
                  *  @Override
                  *  public void onSuccess(SendResult sendResult) {
-                 *      // do something
+                 *      // ipt something
                  *  }
                  *
                  *  @Override
                  *  public void onException(Throwable e) {
-                 *      // do something
+                 *      // ipt something
                  *  }
                  *});
                  *

@@ -213,7 +213,7 @@ public class BrokerStartup {
             MixAll.printObjectProperties(log, nettyClientConfig);
             MixAll.printObjectProperties(log, messageStoreConfig);
 
-            // do 创建brokerController并初始化
+            // ipt 创建brokerController并初始化
             final BrokerController controller = new BrokerController(
                 brokerConfig,
                 nettyServerConfig,

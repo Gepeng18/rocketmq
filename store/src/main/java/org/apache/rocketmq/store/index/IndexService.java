@@ -212,7 +212,7 @@ public class IndexService {
     }
 
     public void buildIndex(DispatchRequest req) {
-        // do 1、获取或者是创建索引文件
+        // ipt 1、获取或者是创建索引文件
         IndexFile indexFile = retryGetAndCreateIndexFile();
         if (indexFile != null) {
             // 2、获取最后一个物理offset
@@ -240,7 +240,7 @@ public class IndexService {
             }
 
             if (req.getUniqKey() != null) {
-                // do 这个是构建topic && uniqKey (maybe is msgId)的一个index
+                // ipt 这个是构建topic && uniqKey (maybe is msgId)的一个index
                 // 我们在塞入keys的时候如果是一个key的话不要有空字符，不然的话它就会当成2个key，然后进行分割
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
                 if (indexFile == null) {
@@ -272,15 +272,15 @@ public class IndexService {
     // 就是将key放到索引文件中
     private IndexFile putKey(IndexFile indexFile, DispatchRequest msg, String idxKey) {
         // 不断重试，失败了就重新获取一个indexFile(也可能是重新创建一个)
-        // do 调用indexFile.putKey
+        // ipt 调用indexFile.putKey
         for (boolean ok = indexFile.putKey(idxKey, msg.getCommitLogOffset(), msg.getStoreTimestamp()); !ok; ) {
             log.warn("Index file [" + indexFile.getFileName() + "] is full, trying to create another one");
-            // do 重新获取或者是创建一个indexFile
+            // ipt 重新获取或者是创建一个indexFile
             indexFile = retryGetAndCreateIndexFile();
             if (null == indexFile) {
                 return null;
             }
-            // do 继续创建索引
+            // ipt 继续创建索引
             ok = indexFile.putKey(idxKey, msg.getCommitLogOffset(), msg.getStoreTimestamp());
         }
 
@@ -298,7 +298,7 @@ public class IndexService {
 
         // 重试三次，调用getAndCreateLastIndexFile()获取索引文件
         for (int times = 0; null == indexFile && times < MAX_TRY_IDX_CREATE; times++) {
-            // do 获取索引文件
+            // ipt 获取索引文件
             indexFile = this.getAndCreateLastIndexFile();
             if (null != indexFile)
                 break;
@@ -330,7 +330,7 @@ public class IndexService {
             // 获取读锁
             this.readWriteLock.readLock().lock();
             if (!this.indexFileList.isEmpty()) {
-                // do 获取最后一个IndexFile
+                // ipt 获取最后一个IndexFile
                 IndexFile tmp = this.indexFileList.get(this.indexFileList.size() - 1);
                 if (!tmp.isWriteFull()) {
                     // 如果没有写满的话

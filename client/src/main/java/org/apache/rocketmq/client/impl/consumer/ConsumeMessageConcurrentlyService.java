@@ -228,7 +228,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
                     //提交到线程池处理
                     this.consumeExecutor.submit(consumeRequest);
                 } catch (RejectedExecutionException e) {
-                    // do 消费不过来的时候 这玩意出现不了啊,上面的消费队列大小没有限定
+                    // ipt 消费不过来的时候 这玩意出现不了啊,上面的消费队列大小没有限定
                     for (; total < msgs.size(); total++) {
                         msgThis.add(msgs.get(total));
                     }
@@ -413,7 +413,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
                 return;
             }
 
-            // do 获取listener,这不就是用户自己定义的那个了
+            // ipt 获取listener,这不就是用户自己定义的那个了
             MessageListenerConcurrently listener = ConsumeMessageConcurrentlyService.this.messageListener;
             ConsumeConcurrentlyContext context = new ConsumeConcurrentlyContext(messageQueue);
             ConsumeConcurrentlyStatus status = null;
@@ -445,7 +445,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
                         MessageAccessor.setConsumeStartTimeStamp(msg, String.valueOf(System.currentTimeMillis()));
                     }
                 }
-                // do 调用用户定义的listener进行消费
+                // ipt 调用用户定义的listener进行消费
                 status = listener.consumeMessage(Collections.unmodifiableList(msgs), context);
             } catch (Throwable e) {
                 log.warn(String.format("consumeMessage exception: %s Group: %s Msgs: %s MQ: %s",

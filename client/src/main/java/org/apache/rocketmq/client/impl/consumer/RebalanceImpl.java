@@ -275,7 +275,7 @@ public abstract class RebalanceImpl {
             case CLUSTERING: {
                 // 获取mq
                 Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
-                // do 1、获取到了这个group，获取这个topic的消费组的所有消费客户端
+                // ipt 1、获取到了这个group，获取这个topic的消费组的所有消费客户端
                 List<String> cidAll = this.mQClientFactory.findConsumerIdList(topic, consumerGroup);
                 if (null == mqSet) {
                     if (!topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
@@ -293,7 +293,7 @@ public abstract class RebalanceImpl {
                     List<MessageQueue> mqAll = new ArrayList<MessageQueue>();
                     mqAll.addAll(mqSet);
 
-                    // do 2、进行排序，很重要，这样所有客户端都是这个顺序
+                    // ipt 2、进行排序，很重要，这样所有客户端都是这个顺序
                     Collections.sort(mqAll);
                     Collections.sort(cidAll);
 
@@ -303,7 +303,7 @@ public abstract class RebalanceImpl {
                     // 分配mq的结果
                     List<MessageQueue> allocateResult = null;
                     try {
-                        // do 3、使用策略进行分配，默认是按照平均的方式（这里建议直接去看原博客）
+                        // ipt 3、使用策略进行分配，默认是按照平均的方式（这里建议直接去看原博客）
                         allocateResult = strategy.allocate(
                             this.consumerGroup,
                             this.mQClientFactory.getClientId(),
@@ -320,7 +320,7 @@ public abstract class RebalanceImpl {
                         allocateResultSet.addAll(allocateResult);
                     }
 
-                    // do 4、更新processQueue
+                    // ipt 4、更新processQueue
                     // 这个ProcessQueue与MessageQueue是一一对应的，后面的消息消费就是使用这个ProcessQueue
                     boolean changed = this.updateProcessQueueTableInRebalance(topic, allocateResultSet, isOrder);
                     if (changed) {
@@ -328,7 +328,7 @@ public abstract class RebalanceImpl {
                             "rebalanced result changed. allocateMessageQueueStrategyName={}, group={}, topic={}, clientId={}, mqAllSize={}, cidAllSize={}, rebalanceResultSize={}, rebalanceResultSet={}",
                             strategy.getName(), consumerGroup, topic, this.mQClientFactory.getClientId(), mqSet.size(), cidAll.size(),
                             allocateResultSet.size(), allocateResultSet);
-                        // do 5、
+                        // ipt 5、
                         this.messageQueueChanged(topic, mqSet, allocateResultSet);
                     }
                 }

@@ -89,7 +89,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
         return false;
     }
 
-    // do 真正处理流程
+    // ipt 真正处理流程
     private RemotingCommand processRequest(final Channel channel, RemotingCommand request, boolean brokerAllowSuspend)
         throws RemotingCommandException {
         final long beginTimeMills = this.brokerController.getMessageStore().now();
@@ -245,7 +245,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                 this.brokerController.getConsumerFilterManager());
         }
 
-        // do 非常重要的一个方法 ：去消息存储器中获取消息
+        // ipt 非常重要的一个方法 ：去消息存储器中获取消息
         final GetMessageResult getMessageResult =
             this.brokerController.getMessageStore().getMessage(requestHeader.getConsumerGroup(), requestHeader.getTopic(),
                 requestHeader.getQueueId(), requestHeader.getQueueOffset(), requestHeader.getMaxMsgNums(), messageFilter);
@@ -405,7 +405,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                      * 这里有两种转换方式，其实也是传输方式吧，一个就是普通的io进行传输，将bytebuffer转成字节数组，设置到response中去，
                      * 使用堆内存来处理的。一个就是使用ManyMessageTransfer来处理的，重写了transferTo方法。 默认是使用堆来完成转换的。
                      */
-                    // do 默认是true 就是是否在heap内存中直接转换 就是将获取到byteBuffer 在heap内存中转换成 字节数组
+                    // ipt 默认是true 就是是否在heap内存中直接转换 就是将获取到byteBuffer 在heap内存中转换成 字节数组
                     if (this.brokerController.getBrokerConfig().isTransferMsgByHeap()) {
                         // 进行转换
                         final byte[] r = this.readGetMessageResult(getMessageResult, requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId());

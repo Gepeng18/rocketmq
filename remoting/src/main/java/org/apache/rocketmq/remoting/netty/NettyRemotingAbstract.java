@@ -422,7 +422,7 @@ public abstract class NettyRemotingAbstract {
     public RemotingCommand invokeSyncImpl(final Channel channel, final RemotingCommand request,
         final long timeoutMillis)
         throws InterruptedException, RemotingSendRequestException, RemotingTimeoutException {
-        // do 获取request的id，这个id用来匹配响应结果的
+        // ipt 获取request的id，这个id用来匹配响应结果的
         final int opaque = request.getOpaque();
 
         try {

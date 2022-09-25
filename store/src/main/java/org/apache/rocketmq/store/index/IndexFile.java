@@ -133,12 +133,12 @@ public class IndexFile {
                 }
 
                 // 接下来就是计算当前要构建index的这个消息
-                // do 计算索引在文件中的真实位置
+                // ipt 计算索引在文件中的真实位置
                 int absIndexPos =
                     IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                         + this.indexHeader.getIndexCount() * indexSize;
 
-                // do 写入索引（不是hash槽哦）
+                // ipt 写入索引（不是hash槽哦）
                 this.mappedByteBuffer.putInt(absIndexPos, keyHash);
                 this.mappedByteBuffer.putLong(absIndexPos + 4, phyOffset);
                 // 存了一个与这个indexFile中最开始那个msg写入时间的一个时间差
@@ -146,7 +146,7 @@ public class IndexFile {
                 // 存储原来槽里的index值（hash冲突就是链表的形式解决的）
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8 + 4, slotValue);
 
-                // do 在hash槽里存放了index，然后通过index就能获取到真实的一个存储物理地址
+                // ipt 在hash槽里存放了index，然后通过index就能获取到真实的一个存储物理地址
                 this.mappedByteBuffer.putInt(absSlotPos, this.indexHeader.getIndexCount());
 
                 /**

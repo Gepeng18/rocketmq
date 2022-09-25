@@ -993,7 +993,7 @@ public class BrokerController {
             this.brokerConfig.getBrokerName(),
             this.brokerConfig.getBrokerId(),
             this.brokerConfig.getRegisterBrokerTimeoutMills())) {
-            // do 进行注册
+            // ipt 进行注册
             doRegisterBrokerAll(checkOrderConfig, oneway, topicConfigWrapper);
         }
     }

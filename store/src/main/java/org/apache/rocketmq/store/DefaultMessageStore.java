@@ -480,7 +480,7 @@ public class DefaultMessageStore implements MessageStore {
 
         // 2、获取系统时间
         long beginTime = this.getSystemClock().now();
-        // do 3、往commitlog中存储消息
+        // ipt 3、往commitlog中存储消息
         CompletableFuture<PutMessageResult> putResultFuture = this.commitLog.asyncPutMessage(msg);
 
         putResultFuture.thenAccept((result) -> {
@@ -635,10 +635,10 @@ public class DefaultMessageStore implements MessageStore {
         // 存放结果的
         GetMessageResult getResult = null;
 
-        // do 获取commitlog中最大的offset
+        // ipt 获取commitlog中最大的offset
         final long maxOffsetPy = this.commitLog.getMaxOffset();
 
-        // do 根据topic与queueId获取对应的ConsumeQueue
+        // ipt 根据topic与queueId获取对应的ConsumeQueue
         ConsumeQueue consumeQueue = findConsumeQueue(topic, queueId);
         if (consumeQueue != null) {
             // 获取这个consume queue最小的offset
@@ -716,10 +716,10 @@ public class DefaultMessageStore implements MessageStore {
                                     continue;
                             }
 
-                            // do 检查是否是在磁盘上,就是看看你这个offset距离着最大的offset差多少字节,超过了内存的40%就不行了,因为就留内存的40%最新的消息在内存里面,
+                            // ipt 检查是否是在磁盘上,就是看看你这个offset距离着最大的offset差多少字节,超过了内存的40%就不行了,因为就留内存的40%最新的消息在内存里面,
                             boolean isInDisk = checkInDiskByCommitOffset(offsetPy, maxOffsetPy);
 
-                            // do 判断满了吗
+                            // ipt 判断满了吗
                             if (this.isTheBatchFull(sizePy, maxMsgNums, getResult.getBufferTotalSize(), getResult.getMessageCount(),
                                 isInDisk)) {
                                 break;
@@ -747,7 +747,7 @@ public class DefaultMessageStore implements MessageStore {
                                 continue;
                             }
 
-                            // do 获取数据从哪个offset开始,然后获取多大,其实就是从commitLog里面获取具体的
+                            // ipt 获取数据从哪个offset开始,然后获取多大,其实就是从commitLog里面获取具体的
                             // 这里其实就是根据commitlog 偏移量从commitlog 中获取真实的消息，最后将消息添加到结果集里面，
                             SelectMappedBufferResult selectResult = this.commitLog.getMessage(offsetPy, sizePy);
                             if (null == selectResult) { //没有获取到东西
@@ -773,7 +773,7 @@ public class DefaultMessageStore implements MessageStore {
                             // 记录状态
                             this.storeStatsService.getGetMessageTransferedMsgCount().add(1);
 
-                            // do 将消息添加到result中
+                            // ipt 将消息添加到result中
                             getResult.addMessage(selectResult);
                             status = GetMessageStatus.FOUND;
 
@@ -803,7 +803,7 @@ public class DefaultMessageStore implements MessageStore {
                                 // 访问消息在内存的最大比率 默认是40
                             * (this.messageStoreConfig.getAccessMessageInMemoryMaxRatio() / 100.0));
                         // 这块就是选择下次去哪里获取
-                        // do 先看看你还有多少没有消费,如果差距太大了,在磁盘里面存着了,然后它就建议你下次去找slave拿
+                        // ipt 先看看你还有多少没有消费,如果差距太大了,在磁盘里面存着了,然后它就建议你下次去找slave拿
                         getResult.setSuggestPullingFromSlave(diff > memory);
                     } finally {
 
@@ -1355,7 +1355,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     public ConsumeQueue findConsumeQueue(String topic, int queueId) {
-        // do 1、先根据 topic找
+        // ipt 1、先根据 topic找
         ConcurrentMap<Integer, ConsumeQueue> map = consumeQueueTable.get(topic);
         if (null == map) {
             ConcurrentMap<Integer, ConsumeQueue> newMap = new ConcurrentHashMap<Integer, ConsumeQueue>(128);
@@ -1367,7 +1367,7 @@ public class DefaultMessageStore implements MessageStore {
             }
         }
 
-        // do 2、再根据queueId找
+        // ipt 2、再根据queueId找
         ConsumeQueue logic = map.get(queueId);
         // 没有对应的consumeQueue，就创建
         if (null == logic) {
@@ -2271,7 +2271,7 @@ public class DefaultMessageStore implements MessageStore {
                             // 成功的话
                             if (dispatchRequest.isSuccess()) {
                                 if (size > 0) {
-                                    // do 真正的分发逻辑
+                                    // ipt 真正的分发逻辑
                                     // 将dispatchRequest交给Dispatch集合里面的Dispatcher处理，
                                     // 这里DispatcherList就是构造方法里面塞进去的那两个，一个是consumeQueue，一个是index
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);

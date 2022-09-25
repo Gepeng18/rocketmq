@@ -459,7 +459,7 @@ public class MQClientAPIImpl {
         final DefaultMQProducerImpl producer
     ) throws RemotingException, MQBrokerException, InterruptedException {
         long beginStartTime = System.currentTimeMillis();
-        RemotingCommand request = null; // do 发送的实体对象
+        RemotingCommand request = null; // ipt 发送的实体对象
         String msgType = msg.getProperty(MessageConst.PROPERTY_MESSAGE_TYPE);
         boolean isReply = msgType != null && msgType.equals(MixAll.REPLY_MESSAGE_FLAG);
         if (isReply) {
@@ -480,7 +480,7 @@ public class MQClientAPIImpl {
                 request = RemotingCommand.createRequestCommand(RequestCode.SEND_MESSAGE, requestHeader);
             }
         }
-        // do 设置上body, 前面已经设置上头：requestHeader 和 RequestCode
+        // ipt 设置上body, 前面已经设置上头：requestHeader 和 RequestCode
         request.setBody(msg.getBody());
 
         switch (communicationMode) {
@@ -504,7 +504,7 @@ public class MQClientAPIImpl {
                     // 判断超时
                     throw new RemotingTooMuchRequestException("sendMessage call timeout");
                 }
-                // do 同步发送
+                // ipt 同步发送
                 return this.sendMessageSync(addr, brokerName, msg, timeoutMillis - costTimeSync, request);
             default:
                 assert false;

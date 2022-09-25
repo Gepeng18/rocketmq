@@ -469,7 +469,7 @@ public class RouteInfoManager {
                         QueueData qd = it.next();
                         brokerNameSet.add(qd.getBrokerName());
                     }
-                    // do 再根据brokerName去broker的地址表中获取broker信息
+                    // ipt 再根据brokerName去broker的地址表中获取broker信息
                     for (String brokerName : brokerNameSet) {
                         // 根据broker名字获取broker信息
                         BrokerData brokerData = this.brokerAddrTable.get(brokerName);

@@ -86,7 +86,7 @@ public class PullMessageService extends ServiceThread {
         final MQConsumerInner consumer = this.mQClientFactory.selectConsumer(pullRequest.getConsumerGroup());
         if (consumer != null) {
             DefaultMQPushConsumerImpl impl = (DefaultMQPushConsumerImpl) consumer;
-            // do 拉取消息
+            // ipt 拉取消息
             impl.pullMessage(pullRequest);
         } else {
             log.warn("No matched consumer for the PullRequest {}, drop it", pullRequest);

@@ -689,7 +689,7 @@ public class CommitLog {
         // 获取写入锁，这个锁也是个可配置项
         putMessageLock.lock(); //spin or ReentrantLock ,depending on store config
         try {
-            // do 获取最后一个MappedFile(从集合中拿最后一个元素)
+            // ipt 获取最后一个MappedFile(从集合中拿最后一个元素)
             MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
             // 获取当前时间
             long beginLockTimestamp = this.defaultMessageStore.getSystemClock().now();
@@ -699,7 +699,7 @@ public class CommitLog {
             // 这里重新设置了写入的时间戳，以确保全局有序
             msg.setStoreTimestamp(beginLockTimestamp);
 
-            // do 判断之前获取的最后一个mappedFile是否是null 或者 满了
+            // ipt 判断之前获取的最后一个mappedFile是否是null 或者 满了
             if (null == mappedFile || mappedFile.isFull()) {
                 // 如果是的话就要新建一个
                 mappedFile = this.mappedFileQueue.getLastMappedFile(0); // Mark: NewFile may be cause noise
@@ -709,7 +709,7 @@ public class CommitLog {
                 return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.CREATE_MAPEDFILE_FAILED, null));
             }
 
-            // do 往mappedFile中追加消息，追加到内存映射文件中
+            // ipt 往mappedFile中追加消息，追加到内存映射文件中
             result = mappedFile.appendMessage(msg, this.appendMessageCallback, putMessageContext);
             // 追加完成后，就判断写入状态
             switch (result.getStatus()) {
@@ -1370,7 +1370,7 @@ public class CommitLog {
                 CommitLog.this.topicQueueTable.put(key, queueOffset);
             }
 
-            // do 这里很重要
+            // ipt 这里很重要
             boolean multiDispatchWrapResult = CommitLog.this.multiDispatch.wrapMultiDispatch(msgInner);
             if (!multiDispatchWrapResult) {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
