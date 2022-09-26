@@ -952,6 +952,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     private void copySubscription() throws MQClientException {
         try {
             // ipt 将 defaultMQPushConsumer 中订阅的topic复制到 rebalanceImpl 中
+            // 一般而言，当调用 consumer.subscribe(topic)时，是直接设置到rebalanceImpl中的，不是设置到defaultMQPushConsumer中的，所以很可能这里没有任何执行
             Map<String, String> sub = this.defaultMQPushConsumer.getSubscription();
             if (sub != null) {
                 for (final Map.Entry<String, String> entry : sub.entrySet()) {
@@ -971,7 +972,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                     // 广播模式
                     break;
                 case CLUSTERING:
-                    // ipt 集群模式，这里会订阅重试topic
+                    // ipt 集群模式，这里会订阅重试topic（重试topic为 "%RETRY%consumerGroupName" ）
                     final String retryTopic = MixAll.getRetryTopic(this.defaultMQPushConsumer.getConsumerGroup());
                     // 生成对应topic的重试topic
                     SubscriptionData subscriptionData = FilterAPI.buildSubscriptionData(retryTopic, SubscriptionData.SUB_ALL);
