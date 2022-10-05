@@ -426,13 +426,12 @@ public abstract class NettyRemotingAbstract {
         final int opaque = request.getOpaque();
 
         try {
-            // 1、创建ResponseFuture，这个东西异步，同步都可以用
+            // 1、创建ResponseFuture（同步、异步用的都是这个），放入response表中
             final ResponseFuture responseFuture = new ResponseFuture(channel, opaque, timeoutMillis, null, null);
-            // 2、放入response表中
             this.responseTable.put(opaque, responseFuture);
-            // 3、根据channel获得远程地址
+            // 2、根据channel获得远程地址（打日志和报错提示用的）
             final SocketAddress addr = channel.remoteAddress();
-            // 向channel中写数据，这里它添加一个listener ，这listener的执行时机就是发送出去的时候
+            // 3、向channel中写数据，这里它添加一个listener ，这listener的执行时机就是发送出去的时候
             channel.writeAndFlush(request).addListener(new ChannelFutureListener() {
                 @Override
                 public void operationComplete(ChannelFuture f) throws Exception {

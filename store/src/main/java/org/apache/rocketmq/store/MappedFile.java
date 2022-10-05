@@ -458,7 +458,7 @@ public class MappedFile extends ReferenceResource {
     }
 
     public boolean destroy(final long intervalForcibly) {
-        // shutdown
+        // 其实就是shutdown，然后过了120s后强制把引用清了
         this.shutdown(intervalForcibly);
 
         // 清理结束

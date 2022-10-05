@@ -364,7 +364,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
         final GetRouteInfoRequestHeader requestHeader =
             (GetRouteInfoRequestHeader) request.decodeCommandCustomHeader(GetRouteInfoRequestHeader.class);
 
-        // 3、do 获取topic的路由信息（将topic 交给RouteInfoManager 的pickupTopicRouteData 方法获取topic对应的TopicRouteData）
+        // ipt 3、获取topic的路由信息（将topic 交给RouteInfoManager 的pickupTopicRouteData 方法获取topic对应的TopicRouteData）
         TopicRouteData topicRouteData = this.namesrvController.getRouteInfoManager().pickupTopicRouteData(requestHeader.getTopic());
         // 如果获取到的不是null的话，就序列化，然后塞到response中，设置响应code，最后返回
         if (topicRouteData != null) {

@@ -201,15 +201,20 @@ public class MappedFileQueue {
         long createOffset = -1;
         MappedFile mappedFileLast = getLastMappedFile();
 
+        // 如果没有mappedFile
         if (mappedFileLast == null) {
+            // 根据mappedFileSize进行上取整
             createOffset = startOffset - (startOffset % this.mappedFileSize);
         }
 
+        // 有mappedFile，但是当前的最后一个文件满了
         if (mappedFileLast != null && mappedFileLast.isFull()) {
+            // 将当前最后一个文件的fileFromOffset+每个mappedFile的文件大小作为下一个要创建的文件的offset
             createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
         }
 
         if (createOffset != -1 && needCreate) {
+            // 进行真正的创建
             return tryCreateMappedFile(createOffset);
         }
 
@@ -217,6 +222,7 @@ public class MappedFileQueue {
     }
 
     protected MappedFile tryCreateMappedFile(long createOffset) {
+        // 生成当前要创建的文件名和下一个要创建的文件名，为啥要生成下一个要创建的文件名呢？我们继续来看
         String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
         String nextNextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset
                 + this.mappedFileSize);
@@ -409,6 +415,7 @@ public class MappedFileQueue {
      * 接着就是销毁，超时时间是1分钟，最后是删除引用
      */
     public int deleteExpiredFileByOffset(long offset, int unitSize) {
+        // 获取所有mappedFile
         Object[] mfs = this.copyMappedFiles(0);
 
         List<MappedFile> files = new ArrayList<MappedFile>();

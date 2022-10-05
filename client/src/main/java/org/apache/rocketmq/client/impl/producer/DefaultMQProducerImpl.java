@@ -578,11 +578,11 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         this.makeSureStateOK();
         // 2、检测消息合法性(它要检查你topic，消息长度的，你不能发空消息，消息长度也不能太长，默认是不超过4m)
         Validators.checkMessage(msg, this.defaultMQProducer);
-        // 3、生成一个随机的invokeId
+        // 3、生成一个随机的invokeId(就是为了打个日志，不用管)
         final long invokeID = random.nextLong();
         long beginTimestampFirst = System.currentTimeMillis();
-        long beginTimestampPrev = beginTimestampFirst;
-        long endTimestamp = beginTimestampFirst;
+        long beginTimestampPrev = beginTimestampFirst; // 记录每次发送之前的时间，每次依靠该值统计与beginTimestampFirst的差值，就能计算出一共花了多少时间
+        long endTimestamp = beginTimestampFirst; // 这个时间主要用来搜集延迟的
         // 4、获取topic信息,它这个方法会先从本地的一个缓存中获取下，没有的话就从nameserv更新下这个本地缓存，
         // 再找找，要是再找不到，它就认为你没有这个topic了，然后就去nameserv上面拉取一个默认topic的一些配置信息给你用（这个其实就是在新建一个topic）
         // topicPublishInfo里面就有这topic 有几个MessageQueue，然后每个MessageQueue对应在哪个broker上面，broker 的地址又是啥的
@@ -596,7 +596,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             // 其他发送方式是没有这个重试的，然后就发送一次
             int timesTotal = communicationMode == CommunicationMode.SYNC ? 1 + this.defaultMQProducer.getRetryTimesWhenSendFailed() : 1;
             int times = 0;
-            // 存放发送过的broker name
+            // 存放发送过的broker name，打日志用的
             String[] brokersSent = new String[timesTotal];
             // ipt 重试发送，不仅rocketMQ，dubbo的失败重试也是用for实现的
             for (; times < timesTotal; times++) {
@@ -1207,6 +1207,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         this.makeSureStateOK();
         Validators.checkMessage(msg, this.defaultMQProducer);
 
+        // 1、从本地注册表（maybe namesrv）获取topic的路由信息
         TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());
         if (topicPublishInfo != null && topicPublishInfo.ok()) {
             MessageQueue mq = null;
@@ -1217,7 +1218,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 String userTopic = NamespaceUtil.withoutNamespace(userMessage.getTopic(), mQClientFactory.getClientConfig().getNamespace());
                 userMessage.setTopic(userTopic);
 
-                // 调用select自己选择mq
+                // 2、调用selector.select自己选择mq（selector是用户自己写的mq选择器）
                 mq = mQClientFactory.getClientConfig().queueWithNamespace(selector.select(messageQueueList, userMessage, arg));
             } catch (Throwable e) {
                 throw new MQClientException("select message queue threw exception.", e);
@@ -1228,7 +1229,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 throw new RemotingTooMuchRequestException("sendSelectImpl call timeout");
             }
             if (mq != null) {
-                // ipt 发送，并且是发送到选中的mq
+                // ipt 3、发送，并且是发送到选中的mq
                 return this.sendKernelImpl(msg, mq, communicationMode, sendCallback, null, timeout - costTime);
             } else {
                 // ipt 注意，这里没有发送重试

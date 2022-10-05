@@ -85,7 +85,7 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
 
             final int half = tmpList.size() / 2;
             if (half <= 0) {
-                // broker/2 ，如果是小于等于0的话，说明就2个broker以下，选第一个
+                // broker/2 ，如果是小于等于0的话，说明就1个broker，选一个
                 return tmpList.get(0).getName();
             } else {
                 // 如果有两台机器，就轮询选一个

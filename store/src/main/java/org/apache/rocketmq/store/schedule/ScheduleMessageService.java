@@ -371,7 +371,10 @@ public class ScheduleMessageService extends ConfigManager {
         }
 
         /**
-         * @return
+         * 这一串代码不好理解
+         * 我们可以看到 result存在两种情况，第一种是 deliverTimestamp，第二种是now
+         * 默认是deliverTimestamp，那什么时候是now呢？当deliverTimestamp大于now+延迟队列本身应该延迟的时间
+         * 具体解释为：默认的消息投递时间应该是传入的deliverTimestamp，但是由于不知道的特殊原因，使得这个时间大于极限时间，那就立即投递吧
          */
         private long correctDeliverTimestamp(final long now, final long deliverTimestamp) {
 
@@ -438,9 +441,9 @@ public class ScheduleMessageService extends ConfigManager {
                             //can't find ext content.So re compute tags code.
                             log.error("[BUG] can't find consume queue extend file content!addr={}, offsetPy={}, sizePy={}",
                                 tagsCode, offsetPy, sizePy);
-                            // 消息存入时间
+                            // 消息存入时间（从commitLog中拿）
                             long msgStoreTime = defaultMessageStore.getCommitLog().pickupStoreTimestamp(offsetPy, sizePy);
-                            // 计算交付时间
+                            // 计算交付时间，其实就是消息存入时间+应该的延迟时间
                             tagsCode = computeDeliverTimestamp(delayLevel, msgStoreTime);
                         }
                     }
@@ -454,6 +457,7 @@ public class ScheduleMessageService extends ConfigManager {
                     // 还需要等待的时间
                     long countdown = deliverTimestamp - now;
                     if (countdown > 0) {
+                        // 下面两行注释说的是梦话吧？从哪看到等待countdown毫秒了
                         // countdown>0，即消息还未过期，即还需要等待countdown毫秒
                         // 延期countdown毫秒进行递归，这里设计的很巧妙，直接延期到消息发送的时间点，就不用反复判断是否过期了
                         this.scheduleNextTimerTask(nextOffset, DELAY_FOR_A_WHILE);

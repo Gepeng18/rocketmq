@@ -131,7 +131,7 @@ public class RouteInfoManager {
         RegisterBrokerResult result = new RegisterBrokerResult();
         try {
             try {
-                // 1.集群信息维护
+                // ipt 1.集群信息维护
                 // 获取写锁
                 this.lock.writeLock().lockInterruptibly();
 
@@ -144,8 +144,8 @@ public class RouteInfoManager {
                 // 加broker 名字
                 brokerNames.add(brokerName);
 
-                // 2.broker地址信息表维护
-                // 是否是第一次注册
+                // ipt 2.broker地址信息表维护
+                // 是否为该brokerId第一次注册
                 boolean registerFirst = false;
 
                 // 根据broker 名字获取 broker的数据
@@ -169,7 +169,7 @@ public class RouteInfoManager {
                 Iterator<Entry<Long, String>> it = brokerAddrsMap.entrySet().iterator();
                 while (it.hasNext()) {
                     Entry<Long, String> item = it.next();
-                    // 移除 地址相等,然后id不相等的那个
+                    // 移除 地址相等,然后brokerId不相等的那个
                     if (null != brokerAddr && brokerAddr.equals(item.getValue()) && brokerId != item.getKey()) {
                         it.remove();
                     }
@@ -180,7 +180,7 @@ public class RouteInfoManager {
                 // 根据 有没有老得addr || registerFirst来判断是否是第一次注册
                 registerFirst = registerFirst || (null == oldAddr);
 
-                // 3.topic配置信息表的维护，感觉就是队列表的信息维护
+                // ipt 3.topic配置信息表的维护，感觉就是队列表的信息维护
                 if (null != topicConfigWrapper
                     && MixAll.MASTER_ID == brokerId) { // 是master
                     if (this.isBrokerTopicConfigChanged(brokerAddr, topicConfigWrapper.getDataVersion())
@@ -195,7 +195,7 @@ public class RouteInfoManager {
                     }
                 }
 
-                // 4.broker 存活信息表维护
+                // ipt 4.broker 存活信息表维护
                 // 创建live信息,然后放到缓存中
                 BrokerLiveInfo prevBrokerLiveInfo = this.brokerLiveTable.put(brokerAddr,
                     new BrokerLiveInfo(
@@ -207,7 +207,7 @@ public class RouteInfoManager {
                     log.info("new broker registered, {} HAServer: {}", brokerAddr, haServerAddr);
                 }
 
-                // 5.过滤器表的维护
+                // ipt 5.过滤器表的维护
                 if (filterServerList != null) {
                     if (filterServerList.isEmpty()) {
                         this.filterServerTable.remove(brokerAddr);
@@ -216,6 +216,7 @@ public class RouteInfoManager {
                     }
                 }
 
+                // ipt 6. 向返回的结果中塞点数据
                 // 如果这个来注册的broker不是master
                 if (MixAll.MASTER_ID != brokerId) {
                     // 获取master的地址
@@ -273,7 +274,7 @@ public class RouteInfoManager {
         queueData.setPerm(topicConfig.getPerm());
         queueData.setTopicSysFlag(topicConfig.getTopicSysFlag());
 
-        // do
+        // ipt 先查看topicName对应的队列集合
         List<QueueData> queueDataList = this.topicQueueTable.get(topicConfig.getTopicName());
         if (null == queueDataList) {
             queueDataList = new LinkedList<QueueData>();
@@ -286,6 +287,8 @@ public class RouteInfoManager {
             Iterator<QueueData> it = queueDataList.iterator();
             while (it.hasNext()) {
                 QueueData qd = it.next();
+                // 已存在的队列中有和本次brokerName相同的queue，
+                // 则再判断该queue和传入的queue是否一样，如果一样则啥也不干，如果不一样，则把已存在的queue给删了，并且把新的queue加到list中
                 if (qd.getBrokerName().equals(brokerName)) {
                     if (qd.equals(queueData)) {
                         addNewOne = false;
@@ -441,6 +444,11 @@ public class RouteInfoManager {
      * 从brokerAddrTable 缓存中获取到对应的 BrokerData对象放到brokerData集合中，同时也从BrokerData
      * 对象中获取到一堆broker 地址，根据broker 地址 从filterServerTable 缓存中获取到对应的filter集合
      * 塞到filterServerTable 中，好了这样就把TopicRouteData 对象所需要的凑齐了
+     *
+     * 1、从topic队列表中根据topicName拿到所有队列
+     * 2、根据队列拿到所有所有brokerName，再根据brokerName从broker的地址表中获取broker信息
+     * 3、根据与broker信息中的broker地址从filterServerTable中获取过滤服务器列表
+     * 上面这三部分数据正好对应着 返回值 TopicRouteData 中除 orderTopicConf 外的三个字段
      */
     public TopicRouteData pickupTopicRouteData(final String topic) {
         TopicRouteData topicRouteData = new TopicRouteData();
@@ -457,7 +465,7 @@ public class RouteInfoManager {
             try {
                 // 1、获取读锁
                 this.lock.readLock().lockInterruptibly();
-                // 2、do 根据topic获取queueData列表
+                // ipt 2、 根据topic获取queueData列表
                 List<QueueData> queueDataList = this.topicQueueTable.get(topic);
                 if (queueDataList != null) {
                     topicRouteData.setQueueDatas(queueDataList);
@@ -557,11 +565,13 @@ public class RouteInfoManager {
                     this.filterServerTable.remove(brokerAddrFound);
                     String brokerNameFound = null;
                     boolean removeBrokerName = false;
+                    // 遍历所有topic
                     Iterator<Entry<String, BrokerData>> itBrokerAddrTable =
                         this.brokerAddrTable.entrySet().iterator();
                     while (itBrokerAddrTable.hasNext() && (null == brokerNameFound)) {
                         BrokerData brokerData = itBrokerAddrTable.next().getValue();
 
+                        // 遍历该topic的所有brokerAddr
                         Iterator<Entry<Long, String>> it = brokerData.getBrokerAddrs().entrySet().iterator();
                         while (it.hasNext()) {
                             Entry<Long, String> entry = it.next();
@@ -607,6 +617,7 @@ public class RouteInfoManager {
                     }
 
                     if (removeBrokerName) {
+                        // 遍历所有topic
                         Iterator<Entry<String, List<QueueData>>> itTopicQueueTable =
                             this.topicQueueTable.entrySet().iterator();
                         while (itTopicQueueTable.hasNext()) {
