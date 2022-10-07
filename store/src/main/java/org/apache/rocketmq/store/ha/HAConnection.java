@@ -59,6 +59,8 @@ public class HAConnection {
     }
 
     public void start() {
+        // readSocketService是负责读取socket内容
+        // WriteSocketService是负责将master上的消息通过nio发送给slave。
         this.readSocketService.start();
         this.writeSocketService.start();
     }
@@ -105,6 +107,7 @@ public class HAConnection {
             while (!this.isStopped()) {
                 try {
                     this.selector.select(1000);
+                    // ipt
                     boolean ok = this.processReadEvent();
                     if (!ok) {
                         HAConnection.log.error("processReadEvent error");
@@ -150,6 +153,12 @@ public class HAConnection {
             return ReadSocketService.class.getSimpleName();
         }
 
+        /**
+         * 该方法是根据socketchannel来拿到slave的offset：
+         * 因为是nio不是netty这里主要流程是处理了拆包的过程：从socketchannel拿数据，如果不到8个字节，就继续拿，最多拿3次，拿到8个字节之后，
+         * 然后getlong拿到8个字节也就是刚刚slave发送的偏移量readOffset，然后将这个偏移量放到HAConnection.this.slaveRequestOffset里面，
+         * 交给WriteSocketService线程去处理，
+         */
         private boolean processReadEvent() {
             int readSizeZeroTimes = 0;
 
@@ -246,6 +255,7 @@ public class HAConnection {
 
                             this.nextTransferFromWhere = masterOffset;
                         } else {
+                            // 将nextTransferFromWhere设置成刚刚拉取的slave的offset
                             this.nextTransferFromWhere = HAConnection.this.slaveRequestOffset;
                         }
 

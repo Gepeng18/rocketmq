@@ -216,6 +216,7 @@ public class HAService {
                                         + sc.socket().getRemoteSocketAddress());
 
                                     try {
+                                        // ipt
                                         HAConnection conn = new HAConnection(HAService.this, sc);
                                         conn.start();
                                         HAService.this.addConnection(conn);
@@ -286,6 +287,7 @@ public class HAService {
         private void doWaitTransfer() {
             if (!this.requestsRead.isEmpty()) {
                 for (CommitLog.GroupCommitRequest req : this.requestsRead) {
+                    // 判断当前master的broker对应的几个slave上面最大的偏移量是否大于request中的偏移量，如果大于，说明同步已经完成
                     boolean transferOK = HAService.this.push2SlaveMaxOffset.get() >= req.getNextOffset();
                     long deadLine = req.getDeadLine();
                     while (!transferOK && deadLine - System.nanoTime() > 0) {
@@ -433,6 +435,12 @@ public class HAService {
             return true;
         }
 
+        /**
+         * slave将数据持久化到commitlog里面：
+         * this.byteBufferRead.position()是整个读取的长度，如果长度比12个字节长，那就根据请求头里面后4个字节读出消息数据的长度，bodySize，
+         * 然后将position移到12，然后读取bodySize长度到bodyData里面，
+         * 接着，调用messagestore将数据持久化：HAService.this.defaultMessageStore.appendToCommitLog(masterPhyOffset, bodyData);
+         */
         private boolean dispatchReadRequest() {
             final int msgHeaderSize = 8 + 4; // phyoffset + size
 
@@ -550,8 +558,9 @@ public class HAService {
             while (!this.isStopped()) {
                 try {
                     if (this.connectMaster()) {
-
+                        // 每5s执行一次
                         if (this.isTimeToReportOffset()) {
+                            // 将自己的当前的currentReportedOffset通过nio发送给master
                             boolean result = this.reportSlaveMaxOffset(this.currentReportedOffset);
                             if (!result) {
                                 this.closeMaster();

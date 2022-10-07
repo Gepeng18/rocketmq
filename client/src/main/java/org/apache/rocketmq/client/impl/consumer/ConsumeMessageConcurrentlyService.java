@@ -415,7 +415,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
      */
     class ConsumeRequest implements Runnable {
         private final List<MessageExt> msgs; // 待消费的多个消息
-        private final ProcessQueue processQueue; // 代销费的pq
+        private final ProcessQueue processQueue; // 待消费的pq
         private final MessageQueue messageQueue;
 
         public ConsumeRequest(List<MessageExt> msgs, ProcessQueue processQueue, MessageQueue messageQueue) {

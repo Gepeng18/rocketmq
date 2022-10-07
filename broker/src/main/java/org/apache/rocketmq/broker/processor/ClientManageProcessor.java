@@ -73,8 +73,10 @@ public class ClientManageProcessor extends AsyncNettyRequestProcessor implements
     }
 
     public RemotingCommand heartBeat(ChannelHandlerContext ctx, RemotingCommand request) {
+        // 1、创建response, 解析request
         RemotingCommand response = RemotingCommand.createResponseCommand(null);
         HeartbeatData heartbeatData = HeartbeatData.decode(request.getBody(), HeartbeatData.class);
+        // 2、将clientId，channel等信息封装成 ClientChannelInfo
         ClientChannelInfo clientChannelInfo = new ClientChannelInfo(
             ctx.channel(),
             heartbeatData.getClientID(),
@@ -82,6 +84,7 @@ public class ClientManageProcessor extends AsyncNettyRequestProcessor implements
             request.getVersion()
         );
 
+        // 处理consumer：data表示这次上报的MQClientInstance中的所有consumerData
         for (ConsumerData data : heartbeatData.getConsumerDataSet()) {
             SubscriptionGroupConfig subscriptionGroupConfig =
                 this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(
@@ -118,6 +121,7 @@ public class ClientManageProcessor extends AsyncNettyRequestProcessor implements
             }
         }
 
+        // 处理producer
         for (ProducerData data : heartbeatData.getProducerDataSet()) {
             this.brokerController.getProducerManager().registerProducer(data.getGroupName(),
                 clientChannelInfo);

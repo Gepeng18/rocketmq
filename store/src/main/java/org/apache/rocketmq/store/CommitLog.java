@@ -925,8 +925,9 @@ public class CommitLog {
     public CompletableFuture<PutMessageStatus> submitReplicaRequest(AppendMessageResult result, MessageExt messageExt) {
         if (BrokerRole.SYNC_MASTER == this.defaultMessageStore.getMessageStoreConfig().getBrokerRole()) {
             HAService service = this.defaultMessageStore.getHaService();
-            if (messageExt.isWaitStoreMsgOK()) {
+            if (messageExt.isWaitStoreMsgOK()) { // 如果是同步
                 if (service.isSlaveOK(result.getWroteBytes() + result.getWroteOffset())) {
+                    // 构建一个GroupCommitRequest请求，然后将这个请求放到HAService中
                     GroupCommitRequest request = new GroupCommitRequest(result.getWroteOffset() + result.getWroteBytes(),
                             this.defaultMessageStore.getMessageStoreConfig().getSlaveTimeout());
                     service.putRequest(request);

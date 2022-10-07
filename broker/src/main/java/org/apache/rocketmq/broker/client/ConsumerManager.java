@@ -99,13 +99,16 @@ public class ConsumerManager {
         ConsumeType consumeType, MessageModel messageModel, ConsumeFromWhere consumeFromWhere,
         final Set<SubscriptionData> subList, boolean isNotifyConsumerIdsChangedEnable) {
 
+        // 从consumerTable中获取到该group对应的信息
         ConsumerGroupInfo consumerGroupInfo = this.consumerTable.get(group);
+        // 之前不存在该group
         if (null == consumerGroupInfo) {
             ConsumerGroupInfo tmp = new ConsumerGroupInfo(group, consumeType, messageModel, consumeFromWhere);
             ConsumerGroupInfo prev = this.consumerTable.putIfAbsent(group, tmp);
             consumerGroupInfo = prev != null ? prev : tmp;
         }
 
+        // 之前存在该group
         boolean r1 =
             consumerGroupInfo.updateChannel(clientChannelInfo, consumeType, messageModel,
                 consumeFromWhere);

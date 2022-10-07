@@ -121,6 +121,7 @@ public class ConsumerGroupInfo {
         this.consumeFromWhere = consumeFromWhere;
 
         ClientChannelInfo infoOld = this.channelInfoTable.get(infoNew.getChannel());
+        // 之前不存在该channel
         if (null == infoOld) {
             ClientChannelInfo prev = this.channelInfoTable.put(infoNew.getChannel(), infoNew);
             if (null == prev) {
@@ -131,6 +132,7 @@ public class ConsumerGroupInfo {
 
             infoOld = infoNew;
         } else {
+            // 之前存在该channel，但是clientId不等
             if (!infoOld.getClientId().equals(infoNew.getClientId())) {
                 log.error("[BUG] consumer channel exist in broker, but clientId not equal. GROUP: {} OLD: {} NEW: {} ",
                     this.groupName,

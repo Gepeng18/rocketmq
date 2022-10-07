@@ -444,6 +444,7 @@ public class MQClientInstance {
                     while (itBrokerTable.hasNext()) {
                         Entry<String, HashMap<Long, String>> entry = itBrokerTable.next();
                         String brokerName = entry.getKey();
+                        // 对每个brokerName对应的地址信息，先clone一份，然后
                         HashMap<Long, String> oneTable = entry.getValue();
 
                         HashMap<Long, String> cloneAddrTable = new HashMap<Long, String>();
@@ -453,16 +454,19 @@ public class MQClientInstance {
                         while (it.hasNext()) {
                             Entry<Long, String> ee = it.next();
                             String addr = ee.getValue();
+                            // 判断addr是否在topicRouteTable里，不在，则从clone的map中移除
                             if (!this.isBrokerAddrExistInTopicRouteTable(addr)) {
                                 it.remove();
                                 log.info("the broker addr[{} {}] is offline, remove it", brokerName, addr);
                             }
                         }
 
+                        // 如果clone的map中都被删完了，那就连这个entry也不需要了
                         if (cloneAddrTable.isEmpty()) {
                             itBrokerTable.remove();
                             log.info("the broker[{}] name's host is offline, remove it", brokerName);
                         } else {
+                            // 将clone的Map保存起来，后面用来覆盖原始信息
                             updatedTable.put(brokerName, cloneAddrTable);
                         }
                     }
@@ -564,6 +568,9 @@ public class MQClientInstance {
         return updateTopicRouteInfoFromNameServer(topic, false, null);
     }
 
+    /**
+     * 判断addr是否在topicRouteTable的value：TopicRouteData中的brokerDatas中的brokerAddrs里
+     */
     private boolean isBrokerAddrExistInTopicRouteTable(final String addr) {
         Iterator<Entry<String, TopicRouteData>> it = this.topicRouteTable.entrySet().iterator();
         while (it.hasNext()) {
