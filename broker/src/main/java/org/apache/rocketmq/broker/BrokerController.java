@@ -1183,6 +1183,7 @@ public class BrokerController {
     }
 
     private void handleSlaveSynchronize(BrokerRole role) {
+        // 如果是slave那么就会开启一个定时线程每10s执行syncall方法。
         if (role == BrokerRole.SLAVE) {
             if (null != slaveSyncFuture) {
                 slaveSyncFuture.cancel(false);

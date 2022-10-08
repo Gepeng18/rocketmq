@@ -155,9 +155,6 @@ public class HAConnection {
 
         /**
          * 该方法是根据socketchannel来拿到slave的offset：
-         * 因为是nio不是netty这里主要流程是处理了拆包的过程：从socketchannel拿数据，如果不到8个字节，就继续拿，最多拿3次，拿到8个字节之后，
-         * 然后getlong拿到8个字节也就是刚刚slave发送的偏移量readOffset，然后将这个偏移量放到HAConnection.this.slaveRequestOffset里面，
-         * 交给WriteSocketService线程去处理，
          */
         private boolean processReadEvent() {
             int readSizeZeroTimes = 0;
@@ -167,6 +164,11 @@ public class HAConnection {
                 this.processPosition = 0;
             }
 
+            /**
+             * 因为是nio不是netty这里主要流程是处理了拆包的过程：从socketchannel拿数据，如果不到8个字节，就继续拿，最多拿3次，
+             * 拿到8个字节之后，然后getlong拿到8个字节也就是刚刚slave发送的偏移量readOffset，
+             * 然后将这个偏移量放到HAConnection.this.slaveRequestOffset里面，交给WriteSocketService线程去处理
+             */
             while (this.byteBufferRead.hasRemaining()) {
                 try {
                     int readSize = this.socketChannel.read(this.byteBufferRead);
@@ -180,6 +182,7 @@ public class HAConnection {
 
                             HAConnection.this.slaveAckOffset = readOffset;
                             if (HAConnection.this.slaveRequestOffset < 0) {
+                                // 将socket读到的offset赋值给slaveRequestOffset，接下来就交给WriteSocketService线程去处理
                                 HAConnection.this.slaveRequestOffset = readOffset;
                                 log.info("slave[" + HAConnection.this.clientAddr + "] request offset " + readOffset);
                             } else if (HAConnection.this.slaveAckOffset > HAConnection.this.haService.getDefaultMessageStore().getMaxPhyOffset()) {
@@ -236,12 +239,15 @@ public class HAConnection {
                 try {
                     this.selector.select(1000);
 
+                    // readSocketService中设置的slave偏移量
                     if (-1 == HAConnection.this.slaveRequestOffset) {
                         Thread.sleep(10);
                         continue;
                     }
 
+                    // 默认-1
                     if (-1 == this.nextTransferFromWhere) {
+                        // slaveRequestOffset为刚刚readSocketService中设置的slave偏移量，肯定不是-1
                         if (0 == HAConnection.this.slaveRequestOffset) {
                             long masterOffset = HAConnection.this.haService.getDefaultMessageStore().getCommitLog().getMaxOffset();
                             masterOffset =
@@ -255,7 +261,7 @@ public class HAConnection {
 
                             this.nextTransferFromWhere = masterOffset;
                         } else {
-                            // 将nextTransferFromWhere设置成刚刚拉取的slave的offset
+                            // ipt 将nextTransferFromWhere设置成刚刚拉取的slave的offset
                             this.nextTransferFromWhere = HAConnection.this.slaveRequestOffset;
                         }
 
@@ -263,6 +269,7 @@ public class HAConnection {
                             + "], and slave request " + HAConnection.this.slaveRequestOffset);
                     }
 
+                    // 将byteBufferHeader设置一下请求头，然后开始transferData()将请求头用this.socketChannel.write写入到socketChannel里面
                     if (this.lastWriteOver) {
 
                         long interval =
@@ -288,6 +295,9 @@ public class HAConnection {
                             continue;
                     }
 
+                    // 接下来更具nextTransferFromWhere来从messagestore里面更具最大发送长度来拿到selectResult数据，
+                    // 这里的haTransferBatchSize是32KB，然后将数据传给this.selectMappedBufferResult这个全局变量，
+                    // 调用this.transferData()方法来写入到socketChannel里面：
                     SelectMappedBufferResult selectResult =
                         HAConnection.this.haService.getDefaultMessageStore().getCommitLogData(this.nextTransferFromWhere);
                     if (selectResult != null) {

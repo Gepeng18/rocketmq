@@ -419,6 +419,7 @@ public class HAService {
                             return false;
                         }
                     } else if (readSize == 0) {
+                        // 也需要处理拆包问题，也是最多拉取3次
                         if (++readSizeZeroTimes >= 3) {
                             break;
                         }
@@ -435,18 +436,14 @@ public class HAService {
             return true;
         }
 
-        /**
-         * slave将数据持久化到commitlog里面：
-         * this.byteBufferRead.position()是整个读取的长度，如果长度比12个字节长，那就根据请求头里面后4个字节读出消息数据的长度，bodySize，
-         * 然后将position移到12，然后读取bodySize长度到bodyData里面，
-         * 接着，调用messagestore将数据持久化：HAService.this.defaultMessageStore.appendToCommitLog(masterPhyOffset, bodyData);
-         */
         private boolean dispatchReadRequest() {
             final int msgHeaderSize = 8 + 4; // phyoffset + size
 
             while (true) {
+                // 如果读取的数据的长度比请求头（12个字节）长
                 int diff = this.byteBufferRead.position() - this.dispatchPosition;
                 if (diff >= msgHeaderSize) {
+                    // 那就根据请求头里面前8个字节读取出commitlog的masterPhyOffset，再读取后4个字节得到bodySize
                     long masterPhyOffset = this.byteBufferRead.getLong(this.dispatchPosition);
                     int bodySize = this.byteBufferRead.getInt(this.dispatchPosition + 8);
 
@@ -464,6 +461,7 @@ public class HAService {
                         byte[] bodyData = byteBufferRead.array();
                         int dataStart = this.dispatchPosition + msgHeaderSize;
 
+                        // ipt slave把数据持久化到commitlog里面
                         HAService.this.defaultMessageStore.appendToCommitLog(
                                 masterPhyOffset, bodyData, dataStart, bodySize);
 
@@ -560,7 +558,11 @@ public class HAService {
                     if (this.connectMaster()) {
                         // 每5s执行一次
                         if (this.isTimeToReportOffset()) {
-                            // 将自己的当前的currentReportedOffset通过nio发送给master
+                            /**
+                             * 将自己的当前的currentReportedOffset通过nio发送给master
+                             * 接收方在
+                             * @see HAConnection.ReadSocketService#processReadEvent()
+                             */
                             boolean result = this.reportSlaveMaxOffset(this.currentReportedOffset);
                             if (!result) {
                                 this.closeMaster();
@@ -569,6 +571,11 @@ public class HAService {
 
                         this.selector.select(1000);
 
+                        /**
+                         * master将数据写回来之后this.selector.select(1000)会拿到连接，接着执行this.processReadEvent()这个方法来处理请求.
+                         * 发送方在
+                         * @see HAConnection.WriteSocketService#run()
+                         */
                         boolean ok = this.processReadEvent();
                         if (!ok) {
                             this.closeMaster();
