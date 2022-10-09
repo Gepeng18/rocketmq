@@ -776,7 +776,9 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
                 long cachedMessageCount = processQueue.getMsgCount().get();
                 long cachedMessageSizeInMiB = processQueue.getMsgSize().get() / (1024 * 1024);
 
+                // 判断还未消息的数量,数量太多就等会再执行重新执行拉取消息的逻辑
                 if (cachedMessageCount > defaultLitePullConsumer.getPullThresholdForQueue()) {
+                    // 过会再执行重新执行拉取消息的逻辑
                     scheduledThreadPoolExecutor.schedule(this, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL, TimeUnit.MILLISECONDS);
                     if ((queueFlowControlTimes++ % 1000) == 0) {
                         log.warn(
@@ -786,7 +788,9 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
                     return;
                 }
 
+                // 判断还未消息的大小，如果还未消息的消息占用的内存过大，就等会再执行重新执行拉取消息的逻辑
                 if (cachedMessageSizeInMiB > defaultLitePullConsumer.getPullThresholdSizeForQueue()) {
+                    // 等会再执行重新执行拉取消息的逻辑
                     scheduledThreadPoolExecutor.schedule(this, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL, TimeUnit.MILLISECONDS);
                     if ((queueFlowControlTimes++ % 1000) == 0) {
                         log.warn(

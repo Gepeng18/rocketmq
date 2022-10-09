@@ -43,6 +43,7 @@ public class PullRequestHoldService extends ServiceThread {
 
     public void suspendPullRequest(final String topic, final int queueId, final PullRequest pullRequest) {
         String key = this.buildKey(topic, queueId);
+        // ManyPullRequest 就是一个 List
         ManyPullRequest mpr = this.pullRequestTable.get(key);
         if (null == mpr) {
             mpr = new ManyPullRequest();
@@ -117,13 +118,14 @@ public class PullRequestHoldService extends ServiceThread {
 
     public void notifyMessageArriving(final String topic, final int queueId, final long maxOffset, final Long tagsCode,
         long msgStoreTime, byte[] filterBitMap, Map<String, String> properties) {
+        // 找到所有阻塞的ManyPullRequest，它是一个list
         String key = this.buildKey(topic, queueId);
         ManyPullRequest mpr = this.pullRequestTable.get(key);
         if (mpr != null) {
             List<PullRequest> requestList = mpr.cloneListAndClear();
             if (requestList != null) {
                 List<PullRequest> replayList = new ArrayList<PullRequest>();
-
+                // 遍历所有阻塞的PullRequest
                 for (PullRequest request : requestList) {
                     long newestOffset = maxOffset;
                     if (newestOffset <= request.getPullFromThisOffset()) {
@@ -142,7 +144,7 @@ public class PullRequestHoldService extends ServiceThread {
 
                         if (match) {
                             try {
-                                // 感兴趣则唤醒
+                                // 重新执行一遍拉取的请求
                                 this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),
                                     request.getRequestCommand());
                             } catch (Throwable e) {
