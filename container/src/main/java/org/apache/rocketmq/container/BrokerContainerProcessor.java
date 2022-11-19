@@ -50,6 +50,9 @@ public class BrokerContainerProcessor implements NettyRequestProcessor {
         this.brokerContainer = brokerContainer;
     }
 
+    /**
+     * 接收admin的请求
+     */
     @Override
     public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws Exception {
         switch (request.getCode()) {

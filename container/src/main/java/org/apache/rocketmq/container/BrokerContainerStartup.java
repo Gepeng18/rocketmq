@@ -91,9 +91,11 @@ public class BrokerContainerStartup {
                     System.exit(-1);
                 }
 
+                // 根据一个配置文件生成一个 BrokerController
                 final BrokerController brokerController = createAndInitializeBroker(brokerContainer, configPath, brokerProperties);
                 if (brokerController != null) {
                     brokerControllerList.add(brokerController);
+                    // 启动BrokerController
                     startBrokerController(brokerContainer, brokerController, brokerProperties);
                 }
             }
