@@ -272,7 +272,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
          * 当然你也可以不用设置，只要你消费的时候异常不往上抛，它就认为你消费成功了，一旦让它捕获到异常，你这一批消费都要被放到重试队列中。
          */
 
-        // 获取ack
+        // 获取ack，这里的ack可以在listener中设置
         int ackIndex = context.getAckIndex();
 
         if (consumeRequest.getMsgs().isEmpty())
